@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Signage Display</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <p>Loading playlist...</p>
+    </div>
+
+    <div id="error-screen" class="error-screen" style="display: none;">
+        <div class="error-content">
+            <h2>No Active Playlist</h2>
+            <p>Waiting for an active playlist to be set...</p>
+            <div class="retry-info">Retrying in <span id="retry-countdown">10</span> seconds</div>
+        </div>
+    </div>
+
+    <div id="display-container" class="display-container" style="display: none;">
+        <!-- Images and videos will be displayed here -->
+        <img id="current-image" class="media-item" style="display: none;" alt="Display Image">
+        <video id="current-video" class="media-item" style="display: none;" muted autoplay></video>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

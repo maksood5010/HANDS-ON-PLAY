@@ -1,0 +1,69 @@
+import pool from "../config/db.js";
+
+async function createPlaylistTables() {
+  try {
+    // Create playlists table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playlists (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    console.log("Playlists table created successfully!");
+
+    // Create files table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS files (
+        id SERIAL PRIMARY KEY,
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        file_type VARCHAR(50) NOT NULL,
+        file_size BIGINT NOT NULL,
+        mime_type VARCHAR(100),
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    console.log("Files table created successfully!");
+
+    // Create playlist_items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playlist_items (
+        id SERIAL PRIMARY KEY,
+        playlist_id INTEGER NOT NULL,
+        file_id INTEGER NOT NULL,
+        duration INTEGER DEFAULT 5,
+        display_order INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+        UNIQUE(playlist_id, display_order)
+      );
+    `);
+    console.log("Playlist items table created successfully!");
+
+    // Create index for better query performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_items_display_order ON playlist_items(playlist_id, display_order);
+    `);
+    console.log("Indexes created successfully!");
+
+  } catch (error) {
+    console.error("Error creating playlist tables:", error);
+  } finally {
+    await pool.end();
+  }
+}
+
+createPlaylistTables();
+
