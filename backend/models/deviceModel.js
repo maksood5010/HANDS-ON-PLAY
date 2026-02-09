@@ -31,7 +31,9 @@ export const getDevicesByUserId = async (userId) => {
             p.name as playlist_name,
             p.status as playlist_status,
             g.id as group_id,
-            g.name as group_name
+            g.name as group_name,
+            (d.last_seen_at IS NOT NULL AND d.last_seen_at > NOW() - INTERVAL '2 minutes') AS is_online,
+            CASE WHEN (d.last_seen_at IS NOT NULL AND d.last_seen_at > NOW() - INTERVAL '2 minutes') THEN 'online' ELSE 'offline' END AS status
      FROM devices d
      LEFT JOIN playlists p ON d.active_playlist_id = p.id
      LEFT JOIN device_groups g ON d.group_id = g.id
@@ -48,6 +50,14 @@ export const getDeviceByKey = async (deviceKey) => {
     [deviceKey]
   );
   return result.rows[0] || null;
+};
+
+export const updateDeviceLastSeen = async (deviceKey) => {
+  const result = await pool.query(
+    `UPDATE devices SET last_seen_at = CURRENT_TIMESTAMP WHERE device_key = $1 RETURNING id`,
+    [deviceKey]
+  );
+  return result.rowCount > 0;
 };
 
 export const updateDevicePlaylist = async (deviceId, playlistId, userId) => {

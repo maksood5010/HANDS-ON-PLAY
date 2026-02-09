@@ -1,10 +1,10 @@
 import { getActivePlaylist } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
-import { getDeviceByKey } from "../models/deviceModel.js";
+import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
 
 // Helper function to return placeholder playlist
 const getPlaceholderPlaylist = (req) => {
-  const placeholderPath = "users/1/placeholder/handson.png";
+  const placeholderPath = "placeholder/handson.png";
   return {
     success: true,
     playlist: {
@@ -19,12 +19,12 @@ const getPlaceholderPlaylist = (req) => {
           duration: 5,
           display_order: 1,
           file_type: "image",
-          file_url: `${req.protocol}://${req.get('host')}/uploads/${placeholderPath}`,
+          file_url: `${req.protocol}://${req.get("host")}/uploads/${placeholderPath}`,
           original_name: "handson.png",
-          mime_type: "image/png"
-        }
-      ]
-    }
+          mime_type: "image/png",
+        },
+      ],
+    },
   };
 };
 
@@ -46,6 +46,9 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       return res.json(getPlaceholderPlaylist(req));
     }
 
+    // Update last_seen_at so device shows as online
+    await updateDeviceLastSeen(device_key);
+
     // Get device's group_id
     const deviceGroupId = device.group_id;
 
@@ -65,21 +68,25 @@ export const getActivePlaylistForDisplay = async (req, res) => {
     // Get playlist with all items (no userId check for public access)
     const playlistWithItems = await getPlaylistWithItems(playlist.id, null);
 
-    if (!playlistWithItems || !playlistWithItems.items || playlistWithItems.items.length === 0) {
+    if (
+      !playlistWithItems ||
+      !playlistWithItems.items ||
+      playlistWithItems.items.length === 0
+    ) {
       // Playlist has no items, return placeholder
       return res.json(getPlaceholderPlaylist(req));
     }
 
     // Format items with full file URLs
-    const formattedItems = playlistWithItems.items.map(item => ({
+    const formattedItems = playlistWithItems.items.map((item) => ({
       id: item.id,
       file_id: item.file_id,
       duration: item.duration,
       display_order: item.display_order,
       file_type: item.file_type,
-      file_url: `${req.protocol}://${req.get('host')}/uploads/${item.file_path}`,
+      file_url: `${req.protocol}://${req.get("host")}/uploads/${item.file_path}`,
       original_name: item.original_name,
-      mime_type: item.mime_type
+      mime_type: item.mime_type,
     }));
 
     res.json({
@@ -89,8 +96,8 @@ export const getActivePlaylistForDisplay = async (req, res) => {
         name: playlistWithItems.name,
         description: playlistWithItems.description,
         status: playlistWithItems.status,
-        items: formattedItems
-      }
+        items: formattedItems,
+      },
     });
   } catch (error) {
     console.error("Error fetching active playlist:", error);
@@ -99,3 +106,75 @@ export const getActivePlaylistForDisplay = async (req, res) => {
   }
 };
 
+// Public endpoint to validate a device key without returning playlist data
+export const validateDeviceKey = async (req, res) => {
+  try {
+    const { device_key } = req.query;
+
+    if (!device_key || device_key.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        error: "device_key is required",
+      });
+    }
+
+    const device = await getDeviceByKey(device_key.trim());
+
+    if (!device) {
+      return res.json({
+        success: true,
+        valid: false,
+      });
+    }
+
+    return res.json({
+      success: true,
+      valid: true,
+      device: {
+        id: device.id,
+        name: device.name,
+        group_id: device.group_id,
+      },
+    });
+  } catch (error) {
+    console.error("Error validating device key:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// Public endpoint for device heartbeat (no authentication required)
+export const heartbeatDisplay = async (req, res) => {
+  try {
+    const { device_key } = req.query;
+
+    if (!device_key || device_key.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        error: "device_key is required",
+      });
+    }
+
+    const updated = await updateDeviceLastSeen(device_key.trim());
+
+    if (!updated) {
+      return res.json({
+        success: true,
+        valid: false,
+      });
+    }
+
+    return res.json({
+      success: true,
+      valid: true,
+    });
+  } catch (error) {
+    console.error("Error processing heartbeat:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

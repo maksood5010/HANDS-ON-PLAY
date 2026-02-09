@@ -9,6 +9,8 @@ import playlistRoutes from "./routes/playlistRoutes.js";
 import displayRoutes from "./routes/displayRoutes.js";
 import deviceRoutes from "./routes/deviceRoutes.js";
 import deviceGroupRoutes from "./routes/deviceGroupRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 dotenv.config();
 
@@ -34,6 +36,8 @@ app.use("/api", authRoutes);
 app.use("/api", playlistRoutes);
 app.use("/api", deviceRoutes);
 app.use("/api", deviceGroupRoutes);
+app.use("/api", userRoutes);
+app.use("/api", dashboardRoutes);
 
 // Public display routes (no authentication required)
 app.use("/", displayRoutes);
