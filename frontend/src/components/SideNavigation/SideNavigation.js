@@ -85,7 +85,7 @@ function SideNavigation({ onLogout, user }) {
           </div>
           <div className="user-details">
             <div className="user-name">{user?.username}</div>
-            <div className="user-role">{user?.role || "Customer"}</div>
+            <div className="user-role">{user?.role || "User"}</div>
           </div>
         </div>
         <button onClick={onLogout} className="logout-btn">

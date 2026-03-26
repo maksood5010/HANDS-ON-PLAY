@@ -6,6 +6,7 @@ import {
   updatePlaylistHandler,
   deletePlaylistHandler,
   uploadFileToPlaylistHandler,
+  uploadFilesToPlaylistHandler,
   getPlaylistItemsHandler,
   updateItemDurationHandler,
   updateItemOrderHandler,
@@ -35,6 +36,7 @@ router.post("/playlists/:id/schedule", schedulePlaylistHandler);
 // Playlist items routes
 router.get("/playlists/:id/items", getPlaylistItemsHandler);
 router.post("/playlists/:playlistId/upload", upload.single("file"), uploadFileToPlaylistHandler);
+router.post("/playlists/:playlistId/upload-multi", upload.array("files"), uploadFilesToPlaylistHandler);
 router.put("/playlist-items/:itemId/duration", updateItemDurationHandler);
 router.put("/playlist-items/:itemId/order", updateItemOrderHandler);
 router.delete("/playlist-items/:itemId", deleteItemHandler);

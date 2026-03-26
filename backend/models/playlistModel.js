@@ -10,7 +10,7 @@ export const createPlaylist = async (name, description, userId) => {
   return result.rows[0];
 };
 
-export const getPlaylistsByUserId = async (userId) => {
+export const getPlaylistsByUserId = async (_userId) => {
   const result = await pool.query(
     `SELECT p.*, 
             COUNT(pi.id) as item_count,
@@ -19,55 +19,53 @@ export const getPlaylistsByUserId = async (userId) => {
      FROM playlists p
      LEFT JOIN playlist_items pi ON p.id = pi.playlist_id
      LEFT JOIN device_groups dg ON p.device_group_id = dg.id
-     WHERE p.user_id = $1
      GROUP BY p.id, dg.id, dg.name
-     ORDER BY p.created_at DESC`,
-    [userId]
+     ORDER BY p.created_at DESC`
   );
   return result.rows;
 };
 
-export const getPlaylistById = async (playlistId, userId) => {
+export const getPlaylistById = async (playlistId, _userId) => {
   const result = await pool.query(
     `SELECT * FROM playlists 
-     WHERE id = $1 AND user_id = $2`,
-    [playlistId, userId]
+     WHERE id = $1`,
+    [playlistId]
   );
   return result.rows[0] || null;
 };
 
-export const updatePlaylist = async (playlistId, name, description, userId) => {
+export const updatePlaylist = async (playlistId, name, description, _userId) => {
   const result = await pool.query(
     `UPDATE playlists 
      SET name = $1, description = $2, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $3 AND user_id = $4
+     WHERE id = $3
      RETURNING *`,
-    [name, description || null, playlistId, userId]
+    [name, description || null, playlistId]
   );
   return result.rows[0] || null;
 };
 
-export const updatePlaylistStatus = async (playlistId, status, userId, deviceGroupId = null) => {
+export const updatePlaylistStatus = async (playlistId, status, _userId, deviceGroupId = null) => {
   // If status is 'inactive', clear device_group_id
   const finalDeviceGroupId = status === 'inactive' ? null : deviceGroupId;
   
   const result = await pool.query(
     `UPDATE playlists 
-     SET status = $1, device_group_id = $4, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2 AND user_id = $3
+     SET status = $1, device_group_id = $3, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2
      RETURNING *`,
-    [status, playlistId, userId, finalDeviceGroupId]
+    [status, playlistId, finalDeviceGroupId]
   );
   return result.rows[0] || null;
 };
 
-export const schedulePlaylist = async (playlistId, startTime, endTime, userId, deviceGroupId = null) => {
+export const schedulePlaylist = async (playlistId, startTime, endTime, _userId, deviceGroupId = null) => {
   const result = await pool.query(
     `UPDATE playlists 
-     SET status = 'scheduled', schedule_start = $1, schedule_end = $2, device_group_id = $5, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $3 AND user_id = $4
+     SET status = 'scheduled', schedule_start = $1, schedule_end = $2, device_group_id = $4, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $3
      RETURNING *`,
-    [startTime, endTime, playlistId, userId, deviceGroupId]
+    [startTime, endTime, playlistId, deviceGroupId]
   );
   return result.rows[0] || null;
 };
@@ -125,12 +123,12 @@ export const getActivePlaylist = async (deviceGroupId = null) => {
   return null;
 };
 
-export const deletePlaylist = async (playlistId, userId) => {
+export const deletePlaylist = async (playlistId, _userId) => {
   const result = await pool.query(
     `DELETE FROM playlists 
-     WHERE id = $1 AND user_id = $2
+     WHERE id = $1
      RETURNING id`,
-    [playlistId, userId]
+    [playlistId]
   );
   return result.rows[0] || null;
 };

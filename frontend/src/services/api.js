@@ -118,6 +118,42 @@ export const playlistAPI = {
     return response.data;
   },
 
+  // Upload multiple files to a playlist in a single request
+  // files: File[]
+  // durations: number[] | (number | null)[]  (per-file durations, same order as files; use null/undefined for videos)
+  uploadFiles: async (playlistId, files, durations = []) => {
+    const formData = new FormData();
+
+    files.forEach((file, index) => {
+      if (!file) return;
+      formData.append("files", file);
+      const duration = durations[index];
+      // Only send duration for images; backend may ignore for videos anyway
+      if (duration != null && duration !== "" && !Number.isNaN(duration)) {
+        formData.append("durations[]", String(duration));
+      } else {
+        formData.append("durations[]", "");
+      }
+    });
+
+    const userId = getUserId();
+    if (userId) {
+      formData.append("user_id", userId);
+    }
+
+    const response = await axios.post(
+      `${API_BASE_URL}/playlists/${playlistId}/upload-multi`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          "x-user-id": userId || "",
+        },
+      }
+    );
+    return response.data;
+  },
+
   getPlaylistItems: async (playlistId) => {
     const response = await api.get(`/playlists/${playlistId}/items`);
     return response.data;

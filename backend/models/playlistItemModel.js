@@ -10,7 +10,7 @@ export const addItemToPlaylist = async (playlistId, fileId, duration, displayOrd
   return result.rows[0];
 };
 
-export const getPlaylistItems = async (playlistId, userId) => {
+export const getPlaylistItems = async (playlistId, _userId) => {
   const result = await pool.query(
     `SELECT 
       pi.id,
@@ -26,30 +26,22 @@ export const getPlaylistItems = async (playlistId, userId) => {
       f.file_size
      FROM playlist_items pi
      INNER JOIN files f ON pi.file_id = f.id
-     INNER JOIN playlists p ON pi.playlist_id = p.id
-     WHERE pi.playlist_id = $1 AND p.user_id = $2
+     WHERE pi.playlist_id = $1
      ORDER BY pi.display_order ASC`,
-    [playlistId, userId]
+    [playlistId]
   );
   return result.rows;
 };
 
-export const getPlaylistWithItems = async (playlistId, userId) => {
-  // Get playlist - userId can be null for public access
-  let playlistResult;
-  if (userId) {
-    playlistResult = await pool.query(
-      `SELECT * FROM playlists 
-       WHERE id = $1 AND user_id = $2`,
-      [playlistId, userId]
-    );
-  } else {
-    playlistResult = await pool.query(
-      `SELECT * FROM playlists 
-       WHERE id = $1`,
-      [playlistId]
-    );
-  }
+export const getPlaylistWithItems = async (playlistId, _userId) => {
+  // Shared-data mode: any user can access any playlist by id
+  const playlistResult = await pool.query(
+    `SELECT p.*, dg.name AS device_group_name
+     FROM playlists p
+     LEFT JOIN device_groups dg ON p.device_group_id = dg.id
+     WHERE p.id = $1`,
+    [playlistId]
+  );
   
   if (playlistResult.rows.length === 0) {
     return null;
@@ -83,25 +75,23 @@ export const getPlaylistWithItems = async (playlistId, userId) => {
   };
 };
 
-export const updateItemDuration = async (itemId, duration, userId) => {
+export const updateItemDuration = async (itemId, duration, _userId) => {
   const result = await pool.query(
-    `UPDATE playlist_items pi
+    `UPDATE playlist_items
      SET duration = $1
-     FROM playlists p
-     WHERE pi.id = $2 AND pi.playlist_id = p.id AND p.user_id = $3
-     RETURNING pi.*`,
-    [duration, itemId, userId]
+     WHERE id = $2
+     RETURNING *`,
+    [duration, itemId]
   );
   return result.rows[0] || null;
 };
 
-export const getItemById = async (itemId, userId) => {
+export const getItemById = async (itemId, _userId) => {
   const result = await pool.query(
-    `SELECT pi.*
-     FROM playlist_items pi
-     INNER JOIN playlists p ON pi.playlist_id = p.id
-     WHERE pi.id = $1 AND p.user_id = $2`,
-    [itemId, userId]
+    `SELECT *
+     FROM playlist_items
+     WHERE id = $1`,
+    [itemId]
   );
   return result.rows[0] || null;
 };
@@ -209,13 +199,12 @@ export const updateItemOrder = async (itemId, newOrder, userId) => {
   return result;
 };
 
-export const deleteItem = async (itemId, userId) => {
+export const deleteItem = async (itemId, _userId) => {
   const result = await pool.query(
-    `DELETE FROM playlist_items pi
-     USING playlists p
-     WHERE pi.id = $1 AND pi.playlist_id = p.id AND p.user_id = $2
-     RETURNING pi.*`,
-    [itemId, userId]
+    `DELETE FROM playlist_items
+     WHERE id = $1
+     RETURNING *`,
+    [itemId]
   );
   return result.rows[0] || null;
 };

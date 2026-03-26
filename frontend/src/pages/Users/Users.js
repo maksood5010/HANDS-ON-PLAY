@@ -4,6 +4,8 @@ import { userAPI } from "../../services/api";
 
 const roles = ["Admin", "Customer"];
 
+const roleLabel = (role) => (role === "Customer" ? "User" : role);
+
 function Users() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -201,7 +203,7 @@ function Users() {
                     </div>
                     <h3>{u.username}</h3>
                     <div className="group-meta">
-                      <span className="device-count-badge">{u.role}</span>
+                      <span className="device-count-badge">{roleLabel(u.role)}</span>
                       {isMe && (
                         <>
                           <span className="meta-separator">•</span>
@@ -232,7 +234,7 @@ function Users() {
                   <div>
                     <h2>{selectedUser.username}</h2>
                     <span className="global-indicator">
-                      Role: {selectedUser.role}
+                      Role: {roleLabel(selectedUser.role)}
                     </span>
                   </div>
                 </div>
@@ -252,7 +254,7 @@ function Users() {
                     </div>
                     <div className="info-item">
                       <span className="info-label">Role</span>
-                      <span className="info-value">{selectedUser.role}</span>
+                      <span className="info-value">{roleLabel(selectedUser.role)}</span>
                     </div>
                     {selectedUser.created_at && (
                       <div className="info-item">
@@ -354,7 +356,7 @@ function Users() {
                 <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
                   {roles.map((r) => (
                     <option key={r} value={r}>
-                      {r}
+                      {roleLabel(r)}
                     </option>
                   ))}
                 </select>
@@ -405,7 +407,7 @@ function Users() {
                 <select value={editRole} onChange={(e) => setEditRole(e.target.value)}>
                   {roles.map((r) => (
                     <option key={r} value={r}>
-                      {r}
+                      {roleLabel(r)}
                     </option>
                   ))}
                 </select>

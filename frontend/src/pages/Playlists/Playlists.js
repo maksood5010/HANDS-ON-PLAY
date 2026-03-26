@@ -10,8 +10,8 @@ function Playlists() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [newPlaylist, setNewPlaylist] = useState({ name: '', description: '' });
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadDuration, setUploadDuration] = useState(5);
+  // Multi-file upload: array of { file, duration }
+  const [uploadFiles, setUploadFiles] = useState([]);
   const [error, setError] = useState('');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showActivateModal, setShowActivateModal] = useState(false);
@@ -22,6 +22,7 @@ function Playlists() {
     end_time: '',
     device_group_id: ''
   });
+  const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
     fetchPlaylists();
@@ -103,24 +104,74 @@ function Playlists() {
 
   const handleUploadFile = async (e) => {
     e.preventDefault();
-    if (!uploadFile) {
-      setError('Please select a file');
+    if (!uploadFiles.length) {
+      setError('Please select at least one file');
       return;
+    }
+
+    // Validate durations for images
+    for (const entry of uploadFiles) {
+      if (entry.file.type.startsWith('image/')) {
+        const d = entry.duration;
+        if (!d || d < 1) {
+          setError('Duration for each image must be at least 1 second');
+          return;
+        }
+      }
     }
 
     try {
       setUploading(true);
       setError('');
-      await playlistAPI.uploadFile(selectedPlaylist.id, uploadFile, uploadDuration);
-      setUploadFile(null);
-      setUploadDuration(5);
+      const files = uploadFiles.map((entry) => entry.file);
+      const durations = uploadFiles.map((entry) =>
+        entry.file.type.startsWith('image/') ? entry.duration : null
+      );
+      await playlistAPI.uploadFiles(selectedPlaylist.id, files, durations);
+      setUploadFiles([]);
       setShowUploadModal(false);
       fetchPlaylistDetails(selectedPlaylist.id);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload file');
+      setError(err.response?.data?.error || 'Failed to upload files');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleFileSelected = (filesList) => {
+    if (!filesList || !filesList.length) return;
+    setError('');
+
+    const newEntries = Array.from(filesList).map((file) => ({
+      file,
+      // Default duration: 5s for images, null for videos
+      duration: file.type.startsWith('image/') ? 5 : null,
+    }));
+
+    setUploadFiles((prev) => [...prev, ...newEntries]);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+
+    const files = event.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    handleFileSelected(files);
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
   };
 
   const handleDeleteItem = async (itemId) => {
@@ -325,9 +376,9 @@ function Playlists() {
                     <span className={`status-indicator ${selectedPlaylist.status || 'inactive'}`}>
                       {selectedPlaylist.status || 'inactive'}
                     </span>
-                    {selectedPlaylist.status === 'active' && selectedPlaylist.device_group_name && (
+                    {selectedPlaylist.device_group_name && (
                       <span className="device-group-info">
-                        Active for: {selectedPlaylist.device_group_name}
+                        Group: {selectedPlaylist.device_group_name}
                       </span>
                     )}
                     {selectedPlaylist.schedule_start && (
@@ -538,44 +589,84 @@ function Playlists() {
             <form onSubmit={handleUploadFile}>
               <div className="form-group">
                 <label>Select File *</label>
-                <div className="file-upload-area">
+                <div
+                  className={`file-upload-area ${isDragOver ? 'drag-over' : ''}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <input
                     type="file"
                     id="file-upload"
                     accept="image/*,video/*"
-                    onChange={(e) => setUploadFile(e.target.files[0])}
+                    multiple
+                    onChange={(e) => handleFileSelected(e.target.files)}
                     className="file-input"
                   />
                   <label htmlFor="file-upload" className="file-upload-label">
-                    {uploadFile ? uploadFile.name : 'Choose file or drag and drop'}
+                    {uploadFiles.length > 0
+                      ? `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} selected`
+                      : 'Choose files or drag and drop'}
                   </label>
                 </div>
-                {uploadFile && (
-                  <div className="file-info">
-                    <span>File: {uploadFile.name}</span>
-                    <span>Size: {(uploadFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                {uploadFiles.length > 0 && (
+                  <div className="file-info multi-file-list">
+                    <ul>
+                      {uploadFiles.map((entry, index) => (
+                        <li key={index}>
+                          <span className="file-name">{entry.file.name}</span>
+                          <span className="file-size">
+                            {(entry.file.size / 1024 / 1024).toFixed(2)} MB
+                          </span>
+                          {entry.file.type.startsWith('image/') && (
+                            <span className="file-duration">
+                              Duration (s):{' '}
+                              <input
+                                type="number"
+                                min="1"
+                                value={entry.duration ?? 5}
+                                onChange={(e) => {
+                                  const value = parseInt(e.target.value, 10);
+                                  setUploadFiles((prev) =>
+                                    prev.map((item, i) =>
+                                      i === index
+                                        ? {
+                                            ...item,
+                                            duration:
+                                              Number.isNaN(value) || value < 1 ? 1 : value,
+                                          }
+                                        : item
+                                    )
+                                  );
+                                }}
+                              />
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
-              {uploadFile && uploadFile.type.startsWith('image/') && (
-                <div className="form-group">
-                  <label>Duration (seconds) *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={uploadDuration}
-                    onChange={(e) => setUploadDuration(parseInt(e.target.value) || 5)}
-                    placeholder="5"
-                  />
-                  <small>How long to display this image (minimum 1 second)</small>
-                </div>
-              )}
               <div className="modal-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowUploadModal(false)}>
+
+              <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={() => setUploadFiles([])}
+                  disabled={uploading || uploadFiles.length === 0}
+                >
+                  Clear Files
+                </button>
+                <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={() => setShowUploadModal(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="submit-btn" disabled={uploading || !uploadFile}>
-                  {uploading ? 'Uploading...' : 'Upload File'}
+                <button type="submit" className="submit-btn" disabled={uploading || uploadFiles.length === 0}>
+                  {uploading ? 'Uploading...' : 'Upload Files'}
                 </button>
               </div>
             </form>

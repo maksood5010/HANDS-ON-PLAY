@@ -25,7 +25,9 @@ export const createDevice = async (name, userId, groupId) => {
   return result.rows[0];
 };
 
-export const getDevicesByUserId = async (userId) => {
+// In shared-data mode, return all devices regardless of user.
+// The userId parameter is kept for backwards compatibility but is not used.
+export const getDevicesByUserId = async (_userId) => {
   const result = await pool.query(
     `SELECT d.*, 
             p.name as playlist_name,
@@ -37,9 +39,7 @@ export const getDevicesByUserId = async (userId) => {
      FROM devices d
      LEFT JOIN playlists p ON d.active_playlist_id = p.id
      LEFT JOIN device_groups g ON d.group_id = g.id
-     WHERE d.user_id = $1
-     ORDER BY d.created_at DESC`,
-    [userId]
+     ORDER BY d.created_at DESC`
   );
   return result.rows;
 };
@@ -64,9 +64,9 @@ export const updateDevicePlaylist = async (deviceId, playlistId, userId) => {
   const result = await pool.query(
     `UPDATE devices 
      SET active_playlist_id = $1, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2 AND user_id = $3
+     WHERE id = $2
      RETURNING *`,
-    [playlistId, deviceId, userId]
+    [playlistId, deviceId]
   );
   return result.rows[0] || null;
 };
@@ -78,8 +78,8 @@ export const getDeviceById = async (deviceId, userId) => {
             g.name as group_name
      FROM devices d
      LEFT JOIN device_groups g ON d.group_id = g.id
-     WHERE d.id = $1 AND d.user_id = $2`,
-    [deviceId, userId]
+     WHERE d.id = $1`,
+    [deviceId]
   );
   return result.rows[0] || null;
 };
@@ -87,9 +87,9 @@ export const getDeviceById = async (deviceId, userId) => {
 export const deleteDevice = async (deviceId, userId) => {
   const result = await pool.query(
     `DELETE FROM devices 
-     WHERE id = $1 AND user_id = $2
+     WHERE id = $1
      RETURNING id`,
-    [deviceId, userId]
+    [deviceId]
   );
   return result.rows[0] || null;
 };

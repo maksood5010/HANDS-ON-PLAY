@@ -117,7 +117,47 @@ export const deletePlaylistHandler = async (req, res) => {
   }
 };
 
-// Upload file and add to playlist
+// Helper to save an uploaded file and create a playlist item
+const processUploadedFile = async (playlistId, file, userId, durationOverride = null) => {
+  // Determine file type
+  const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
+
+  // Get relative path for storage
+  const relativePath = path
+    .relative(path.join(__dirname, "../uploads"), file.path)
+    .replace(/\\/g, "/");
+
+  // Save file metadata
+  const fileRecord = await saveFile(
+    file.originalname,
+    file.filename,
+    relativePath,
+    fileType,
+    file.size,
+    file.mimetype,
+    userId
+  );
+
+  // Get next display order
+  const displayOrder = await getNextDisplayOrder(playlistId);
+
+  // Add to playlist (default duration 5 seconds for images, null for videos)
+  const itemDuration =
+    fileType === "image"
+      ? parseInt(durationOverride ?? 0, 10) || 5
+      : null;
+
+  const playlistItem = await addItemToPlaylist(
+    playlistId,
+    fileRecord.id,
+    itemDuration,
+    displayOrder
+  );
+
+  return { fileRecord, playlistItem };
+};
+
+// Upload file and add to playlist (single-file endpoint, uses shared helper)
 export const uploadFileToPlaylistHandler = async (req, res) => {
   try {
     const { playlistId } = req.params;
@@ -129,7 +169,7 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Verify playlist exists and belongs to user
+    // Verify playlist exists
     const playlist = await getPlaylistById(parseInt(playlistId), userId);
     if (!playlist) {
       // Delete uploaded file if playlist doesn't exist
@@ -137,36 +177,11 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
       return res.status(404).json({ error: "Playlist not found" });
     }
 
-    // Determine file type
-    const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
-    
-    // Get relative path for storage
-    const relativePath = path.relative(
-      path.join(__dirname, "../uploads"),
-      file.path
-    ).replace(/\\/g, "/");
-
-    // Save file metadata
-    const fileRecord = await saveFile(
-      file.originalname,
-      file.filename,
-      relativePath,
-      fileType,
-      file.size,
-      file.mimetype,
-      userId
-    );
-
-    // Get next display order
-    const displayOrder = await getNextDisplayOrder(parseInt(playlistId));
-
-    // Add to playlist (default duration 5 seconds for images, null for videos)
-    const itemDuration = fileType === "image" ? (parseInt(duration) || 5) : null;
-    const playlistItem = await addItemToPlaylist(
+    const { fileRecord, playlistItem } = await processUploadedFile(
       parseInt(playlistId),
-      fileRecord.id,
-      itemDuration,
-      displayOrder
+      file,
+      userId,
+      duration
     );
 
     res.status(201).json({
@@ -182,6 +197,77 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
         fs.unlinkSync(req.file.path);
       } catch (unlinkError) {
         console.error("Error deleting file:", unlinkError);
+      }
+    }
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Upload multiple files and add them to playlist
+export const uploadFilesToPlaylistHandler = async (req, res) => {
+  try {
+    const { playlistId } = req.params;
+    const userId = req.user?.id || null;
+    const files = req.files || [];
+
+    if (!files.length) {
+      return res.status(400).json({ error: "No files uploaded" });
+    }
+
+    // Verify playlist exists
+    const playlist = await getPlaylistById(parseInt(playlistId), userId);
+    if (!playlist) {
+      // Delete uploaded files if playlist doesn't exist
+      for (const file of files) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {
+          // ignore
+        }
+      }
+      return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    // Parse durations (optional) - expect durations[] aligned with files order
+    let durations = [];
+    const rawDurations = req.body["durations[]"] ?? req.body.durations;
+    if (Array.isArray(rawDurations)) {
+      durations = rawDurations;
+    } else if (typeof rawDurations === "string") {
+      durations = [rawDurations];
+    }
+
+    const createdFiles = [];
+    const createdItems = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const duration = durations[i] ?? null;
+      const { fileRecord, playlistItem } = await processUploadedFile(
+        parseInt(playlistId),
+        file,
+        userId,
+        duration
+      );
+      createdFiles.push(fileRecord);
+      createdItems.push(playlistItem);
+    }
+
+    res.status(201).json({
+      success: true,
+      files: createdFiles,
+      playlistItems: createdItems
+    });
+  } catch (error) {
+    console.error("Error uploading multiple files:", error);
+    // Best-effort cleanup of any uploaded files on error
+    if (req.files && Array.isArray(req.files)) {
+      for (const file of req.files) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {
+          // ignore cleanup errors
+        }
       }
     }
     res.status(500).json({ error: "Internal server error" });

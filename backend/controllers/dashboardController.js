@@ -2,12 +2,13 @@ import { getPlaylistsByUserId } from "../models/playlistModel.js";
 import { getDevicesByUserId } from "../models/deviceModel.js";
 import pool from "../config/db.js";
 
+// In shared-data mode, dashboard shows aggregated data across all users.
+// user_id is no longer required; if provided, it is ignored.
 export const getDashboardSummary = async (req, res) => {
   try {
-    const userId = req.user.id;
 
-    // Playlists for this user
-    const playlists = await getPlaylistsByUserId(userId);
+    // Playlists (shared across all users)
+    const playlists = await getPlaylistsByUserId(null);
     const totalPlaylists = playlists.length;
     const activePlaylists = playlists.filter(
       (p) => p.status === "active" || p.status === "scheduled"
@@ -29,8 +30,8 @@ export const getDashboardSummary = async (req, res) => {
         lastUpdated: p.updated_at || p.created_at,
       }));
 
-    // Devices for this user
-    const devices = await getDevicesByUserId(userId);
+    // Devices (shared across all users)
+    const devices = await getDevicesByUserId(null);
     const totalDevices = devices.length;
     const onlineDevices = devices.filter((d) => d.status === "online").length;
     const offlineDevices = totalDevices - onlineDevices;
@@ -47,9 +48,8 @@ export const getDashboardSummary = async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'scheduled') AS active,
         COUNT(*) FILTER (WHERE status = 'scheduled' AND schedule_start > NOW()) AS upcoming,
         COUNT(*) FILTER (WHERE status = 'scheduled' AND schedule_end IS NOT NULL AND schedule_end < NOW()) AS completed
-      FROM playlists
-      WHERE user_id = $1`,
-      [userId]
+      FROM playlists`,
+      []
     );
 
     const schedulesRow = schedulesResult.rows[0] || {
@@ -62,10 +62,10 @@ export const getDashboardSummary = async (req, res) => {
     const scheduledPlaylistsResult = await pool.query(
       `SELECT id, name, schedule_start, schedule_end
        FROM playlists
-       WHERE user_id = $1 AND status = 'scheduled'
+       WHERE status = 'scheduled'
        ORDER BY schedule_start DESC
        LIMIT 4`,
-      [userId]
+      []
     );
 
     const scheduleItems = scheduledPlaylistsResult.rows.map((row) => ({

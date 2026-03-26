@@ -64,6 +64,20 @@ const TrendUpIcon = () => (
   </svg>
 );
 
+const formatLocalDateTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
 function Dashboard() {
   const navigate = useNavigate();
 
@@ -306,7 +320,10 @@ function Dashboard() {
                   <div className="item-details">
                     <div className="schedule-playlist">{schedule.playlist}</div>
                     <div className="schedule-meta">
-                      <span>{schedule.startTime} - {schedule.endTime}</span>
+                      <span>
+                        {formatLocalDateTime(schedule.startTime)}
+                        {schedule.endTime ? ` - ${formatLocalDateTime(schedule.endTime)}` : ""}
+                      </span>
                     </div>
                   </div>
                 </div>
