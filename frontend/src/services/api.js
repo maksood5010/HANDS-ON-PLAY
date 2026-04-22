@@ -61,6 +61,56 @@ export const userAPI = {
   },
 };
 
+export const companyAPI = {
+  listCompanies: async () => {
+    const response = await api.get("/companies");
+    return response.data;
+  },
+  createCompany: async ({
+    name,
+    slug,
+    purchase_date,
+    payment_cycle,
+    contact_name,
+    contact_email,
+    contact_phone,
+    device_limit,
+    additional_info,
+    admin,
+  }) => {
+    const payload = {
+      name,
+      purchase_date,
+      payment_cycle,
+      device_limit,
+      admin,
+    };
+    if (slug !== undefined) payload.slug = slug;
+    if (contact_name !== undefined) payload.contact_name = contact_name;
+    if (contact_email !== undefined) payload.contact_email = contact_email;
+    if (contact_phone !== undefined) payload.contact_phone = contact_phone;
+    if (additional_info !== undefined) payload.additional_info = additional_info;
+    const response = await api.post("/companies", payload);
+    return response.data;
+  },
+  updateCompany: async (id, fields) => {
+    const response = await api.put(`/companies/${id}`, fields);
+    return response.data;
+  },
+  deleteCompany: async (id) => {
+    const response = await api.delete(`/companies/${id}`);
+    return response.data;
+  },
+  getCompanyAdmin: async (id) => {
+    const response = await api.get(`/companies/${id}/admin`);
+    return response.data;
+  },
+  resetCompanyAdminPassword: async (id) => {
+    const response = await api.post(`/companies/${id}/admin/reset-password`, {});
+    return response.data;
+  },
+};
+
 export const messageAPI = {
   getMessage: async () => {
     const response = await api.get("/message");
@@ -192,6 +242,34 @@ export const playlistAPI = {
       end_time: endTime,
       device_group_id: deviceGroupId
     });
+    return response.data;
+  },
+
+  createDailySchedule: async (playlistId, deviceGroupId, dailyStartTime, dailyEndTime, enabled = true) => {
+    const response = await api.post(`/playlists/${playlistId}/schedules/daily`, {
+      device_group_id: deviceGroupId,
+      daily_start_time: dailyStartTime,
+      daily_end_time: dailyEndTime,
+      enabled,
+    });
+    return response.data;
+  },
+
+  listSchedules: async ({ deviceGroupId, playlistId } = {}) => {
+    const params = {};
+    if (deviceGroupId) params.device_group_id = deviceGroupId;
+    if (playlistId) params.playlist_id = playlistId;
+    const response = await api.get(`/schedules`, { params });
+    return response.data;
+  },
+
+  updateSchedule: async (scheduleId, fields) => {
+    const response = await api.put(`/schedules/${scheduleId}`, fields);
+    return response.data;
+  },
+
+  deleteSchedule: async (scheduleId) => {
+    const response = await api.delete(`/schedules/${scheduleId}`);
     return response.data;
   },
 };

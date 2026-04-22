@@ -13,7 +13,11 @@ import {
   deleteItemHandler,
   setPlaylistActiveHandler,
   setPlaylistInactiveHandler,
-  schedulePlaylistHandler
+  schedulePlaylistHandler,
+  createDailyScheduleHandler,
+  listSchedulesHandler,
+  updateScheduleHandler,
+  deleteScheduleHandler
 } from "../controllers/playlistController.js";
 import { authenticate } from "../middleware/auth.js";
 import upload from "../middleware/upload.js";
@@ -32,6 +36,12 @@ router.delete("/playlists/:id", deletePlaylistHandler);
 router.post("/playlists/:id/activate", setPlaylistActiveHandler);
 router.post("/playlists/:id/deactivate", setPlaylistInactiveHandler);
 router.post("/playlists/:id/schedule", schedulePlaylistHandler);
+router.post("/playlists/:id/schedules/daily", createDailyScheduleHandler);
+
+// Recurring schedules
+router.get("/schedules", listSchedulesHandler);
+router.put("/schedules/:scheduleId", updateScheduleHandler);
+router.delete("/schedules/:scheduleId", deleteScheduleHandler);
 
 // Playlist items routes
 router.get("/playlists/:id/items", getPlaylistItemsHandler);

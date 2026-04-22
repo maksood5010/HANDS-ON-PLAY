@@ -2,6 +2,7 @@ package com.hoi.player
 
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -33,7 +34,13 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        KioskUtil.setDeviceOwner(this)
+        window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        or View.SYSTEM_UI_FLAG_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                )
+//        KioskUtil.setDeviceOwner(this)
+//        KioskUtil.removeDeviceOwner(this)
         val deviceKey= PreferencesManager.get<String>("device_key")
         if (deviceKey==null){
             replaceFragment(SetupDeviceFragment(),false)

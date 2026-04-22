@@ -6,12 +6,13 @@ async function createDeviceGroupsTable() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS device_groups (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         user_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        UNIQUE(user_id, name)
+        UNIQUE(company_id, name)
       );
     `);
     console.log("Device groups table created successfully!");
@@ -20,30 +21,10 @@ async function createDeviceGroupsTable() {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_device_groups_user_id ON device_groups(user_id);
     `);
-    console.log("Indexes created successfully!");
-
-    // Insert global "All devices" group if it doesn't exist
-    const globalGroupResult = await pool.query(`
-      INSERT INTO device_groups (name, user_id)
-      SELECT 'All devices', NULL
-      WHERE NOT EXISTS (
-        SELECT 1 FROM device_groups WHERE name = 'All devices' AND user_id IS NULL
-      )
-      RETURNING id;
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_device_groups_company_id ON device_groups(company_id);
     `);
-    
-    let globalGroupId;
-    if (globalGroupResult.rows.length > 0) {
-      globalGroupId = globalGroupResult.rows[0].id;
-      console.log("Global 'All devices' group created with id:", globalGroupId);
-    } else {
-      // Get existing global group id
-      const existingGroup = await pool.query(`
-        SELECT id FROM device_groups WHERE name = 'All devices' AND user_id IS NULL LIMIT 1;
-      `);
-      globalGroupId = existingGroup.rows[0].id;
-      console.log("Global 'All devices' group already exists with id:", globalGroupId);
-    }
+    console.log("Indexes created successfully!");
 
     // Add group_id column to devices table (nullable first)
     await pool.query(`
@@ -51,21 +32,6 @@ async function createDeviceGroupsTable() {
       ADD COLUMN IF NOT EXISTS group_id INTEGER;
     `);
     console.log("Added group_id column to devices table");
-
-    // Backfill: set all devices without a group to the global "All devices" group
-    const backfillResult = await pool.query(`
-      UPDATE devices 
-      SET group_id = $1 
-      WHERE group_id IS NULL;
-    `, [globalGroupId]);
-    console.log(`Backfilled ${backfillResult.rowCount} devices with global group`);
-
-    // Now make group_id NOT NULL
-    await pool.query(`
-      ALTER TABLE devices 
-      ALTER COLUMN group_id SET NOT NULL;
-    `);
-    console.log("Made group_id NOT NULL");
 
         // Add foreign key constraint
         const constraintExists = await pool.query(`

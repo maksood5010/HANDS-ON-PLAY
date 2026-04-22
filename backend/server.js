@@ -11,6 +11,7 @@ import deviceRoutes from "./routes/deviceRoutes.js";
 import deviceGroupRoutes from "./routes/deviceGroupRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import companyRoutes from "./routes/companyRoutes.js";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use("/api", deviceRoutes);
 app.use("/api", deviceGroupRoutes);
 app.use("/api", userRoutes);
 app.use("/api", dashboardRoutes);
+app.use("/api", companyRoutes);
 
 // Public display routes (no authentication required)
 app.use("/", displayRoutes);

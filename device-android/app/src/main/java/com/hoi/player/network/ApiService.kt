@@ -15,12 +15,6 @@ interface ApiService {
     @GET("server-status")
     suspend fun serverStatus(): Response<ApiResponse<Any>>
 
-    @GET("box/get-box-type/{boxId}")
-    suspend fun getBoxType(@Path("boxId") boxId: String): Response<ResponseBody>
-
-    @POST("box/set-tablet-id")
-    suspend fun setTablet(@Body request: SetTabletRequest): Response<ApiResponse<Any?>>
-
     @GET("display/validate-key")
     suspend fun validateDeviceKey(
         @Query("device_key") deviceKey: String

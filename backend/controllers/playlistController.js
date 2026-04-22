@@ -1,6 +1,6 @@
 import {
   createPlaylist,
-  getPlaylistsByUserId,
+  getPlaylistsByCompanyId,
   getPlaylistById,
   updatePlaylist,
   deletePlaylist,
@@ -17,6 +17,13 @@ import {
   getNextDisplayOrder
 } from "../models/playlistItemModel.js";
 import { saveFile, getFileById, deleteFile } from "../models/fileModel.js";
+import {
+  createDailySchedule,
+  listSchedules,
+  updateSchedule,
+  deleteSchedule,
+  getScheduleById,
+} from "../models/playlistScheduleModel.js";
 import pool from "../config/db.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -30,12 +37,13 @@ export const createPlaylistHandler = async (req, res) => {
   try {
     const { name, description } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!name || name.trim() === "") {
       return res.status(400).json({ error: "Playlist name is required" });
     }
 
-    const playlist = await createPlaylist(name.trim(), description, userId);
+    const playlist = await createPlaylist(companyId, name.trim(), description, userId);
     res.status(201).json({ success: true, playlist });
   } catch (error) {
     console.error("Error creating playlist:", error);
@@ -46,8 +54,8 @@ export const createPlaylistHandler = async (req, res) => {
 // Get all playlists for user
 export const getPlaylistsHandler = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const playlists = await getPlaylistsByUserId(userId);
+    const companyId = req.user.company_id;
+    const playlists = await getPlaylistsByCompanyId(companyId);
     res.json({ success: true, playlists });
   } catch (error) {
     console.error("Error fetching playlists:", error);
@@ -59,9 +67,9 @@ export const getPlaylistsHandler = async (req, res) => {
 export const getPlaylistHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
-    const playlist = await getPlaylistWithItems(parseInt(id), userId);
+    const playlist = await getPlaylistWithItems(parseInt(id), companyId);
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -79,13 +87,13 @@ export const updatePlaylistHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description } = req.body;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!name || name.trim() === "") {
       return res.status(400).json({ error: "Playlist name is required" });
     }
 
-    const playlist = await updatePlaylist(parseInt(id), name.trim(), description, userId);
+    const playlist = await updatePlaylist(parseInt(id), companyId, name.trim(), description);
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -102,9 +110,9 @@ export const updatePlaylistHandler = async (req, res) => {
 export const deletePlaylistHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
-    const playlist = await deletePlaylist(parseInt(id), userId);
+    const playlist = await deletePlaylist(parseInt(id), companyId);
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -118,7 +126,7 @@ export const deletePlaylistHandler = async (req, res) => {
 };
 
 // Helper to save an uploaded file and create a playlist item
-const processUploadedFile = async (playlistId, file, userId, durationOverride = null) => {
+const processUploadedFile = async (companyId, playlistId, file, userId, durationOverride = null) => {
   // Determine file type
   const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
 
@@ -129,6 +137,7 @@ const processUploadedFile = async (playlistId, file, userId, durationOverride = 
 
   // Save file metadata
   const fileRecord = await saveFile(
+    companyId,
     file.originalname,
     file.filename,
     relativePath,
@@ -139,7 +148,7 @@ const processUploadedFile = async (playlistId, file, userId, durationOverride = 
   );
 
   // Get next display order
-  const displayOrder = await getNextDisplayOrder(playlistId);
+  const displayOrder = await getNextDisplayOrder(playlistId, companyId);
 
   // Add to playlist (default duration 5 seconds for images, null for videos)
   const itemDuration =
@@ -148,6 +157,7 @@ const processUploadedFile = async (playlistId, file, userId, durationOverride = 
       : null;
 
   const playlistItem = await addItemToPlaylist(
+    companyId,
     playlistId,
     fileRecord.id,
     itemDuration,
@@ -163,6 +173,7 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
     const { playlistId } = req.params;
     const { duration } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.company_id;
     const file = req.file;
 
     if (!file) {
@@ -170,7 +181,7 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
     }
 
     // Verify playlist exists
-    const playlist = await getPlaylistById(parseInt(playlistId), userId);
+    const playlist = await getPlaylistById(parseInt(playlistId), companyId);
     if (!playlist) {
       // Delete uploaded file if playlist doesn't exist
       fs.unlinkSync(file.path);
@@ -178,6 +189,7 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
     }
 
     const { fileRecord, playlistItem } = await processUploadedFile(
+      companyId,
       parseInt(playlistId),
       file,
       userId,
@@ -208,14 +220,19 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
   try {
     const { playlistId } = req.params;
     const userId = req.user?.id || null;
+    const companyId = req.user?.company_id || null;
     const files = req.files || [];
 
     if (!files.length) {
       return res.status(400).json({ error: "No files uploaded" });
     }
 
+    if (!companyId || !userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
     // Verify playlist exists
-    const playlist = await getPlaylistById(parseInt(playlistId), userId);
+    const playlist = await getPlaylistById(parseInt(playlistId), companyId);
     if (!playlist) {
       // Delete uploaded files if playlist doesn't exist
       for (const file of files) {
@@ -244,6 +261,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
       const file = files[i];
       const duration = durations[i] ?? null;
       const { fileRecord, playlistItem } = await processUploadedFile(
+        companyId,
         parseInt(playlistId),
         file,
         userId,
@@ -278,9 +296,9 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
 export const getPlaylistItemsHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
-    const items = await getPlaylistItems(parseInt(id), userId);
+    const items = await getPlaylistItems(parseInt(id), companyId);
     res.json({ success: true, items });
   } catch (error) {
     console.error("Error fetching playlist items:", error);
@@ -293,13 +311,13 @@ export const updateItemDurationHandler = async (req, res) => {
   try {
     const { itemId } = req.params;
     const { duration } = req.body;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!duration || duration < 1) {
       return res.status(400).json({ error: "Duration must be at least 1 second" });
     }
 
-    const item = await updateItemDuration(parseInt(itemId), parseInt(duration), userId);
+    const item = await updateItemDuration(parseInt(itemId), companyId, parseInt(duration));
     
     if (!item) {
       return res.status(404).json({ error: "Item not found" });
@@ -317,14 +335,14 @@ export const updateItemOrderHandler = async (req, res) => {
   try {
     const { itemId } = req.params;
     const { direction } = req.body; // 'up' or 'down'
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!direction || (direction !== 'up' && direction !== 'down')) {
       return res.status(400).json({ error: "Direction must be 'up' or 'down'" });
     }
 
     const { swapItemOrder } = await import("../models/playlistItemModel.js");
-    const item = await swapItemOrder(parseInt(itemId), direction, userId);
+    const item = await swapItemOrder(parseInt(itemId), companyId, direction);
     
     if (!item) {
       return res.status(404).json({ error: "Item not found or cannot be moved" });
@@ -341,9 +359,9 @@ export const updateItemOrderHandler = async (req, res) => {
 export const deleteItemHandler = async (req, res) => {
   try {
     const { itemId } = req.params;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
-    const item = await deleteItem(parseInt(itemId), userId);
+    const item = await deleteItem(parseInt(itemId), companyId);
     
     if (!item) {
       return res.status(404).json({ error: "Item not found" });
@@ -362,13 +380,14 @@ export const setPlaylistActiveHandler = async (req, res) => {
     const { id } = req.params;
     const { device_group_id } = req.body;
     const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!device_group_id) {
       return res.status(400).json({ error: "Device group is required" });
     }
 
     // Validate that the group exists and user has access
-    const canAccess = await canUserAccessGroup(parseInt(device_group_id), userId);
+    const canAccess = await canUserAccessGroup(parseInt(device_group_id), companyId);
     if (!canAccess) {
       return res.status(404).json({ error: "Device group not found" });
     }
@@ -378,13 +397,13 @@ export const setPlaylistActiveHandler = async (req, res) => {
     await pool.query(
       `UPDATE playlists 
        SET status = 'inactive', device_group_id = NULL
-       WHERE user_id = $1 
+       WHERE company_id = $1 
        AND device_group_id = $2 
        AND id != $3`,
-      [userId, parseInt(device_group_id), parseInt(id)]
+      [companyId, parseInt(device_group_id), parseInt(id)]
     );
 
-    const playlist = await updatePlaylistStatus(parseInt(id), 'active', userId, parseInt(device_group_id));
+    const playlist = await updatePlaylistStatus(parseInt(id), companyId, 'active', parseInt(device_group_id));
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -401,9 +420,9 @@ export const setPlaylistActiveHandler = async (req, res) => {
 export const setPlaylistInactiveHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
-    const playlist = await updatePlaylistStatus(parseInt(id), 'inactive', userId);
+    const playlist = await updatePlaylistStatus(parseInt(id), companyId, 'inactive');
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -421,7 +440,7 @@ export const schedulePlaylistHandler = async (req, res) => {
   try {
     const { id } = req.params;
     const { start_time, end_time, device_group_id } = req.body;
-    const userId = req.user.id;
+    const companyId = req.user.company_id;
 
     if (!start_time) {
       return res.status(400).json({ error: "Start time is required" });
@@ -432,12 +451,12 @@ export const schedulePlaylistHandler = async (req, res) => {
     }
 
     // Validate that the group exists and user has access
-    const canAccess = await canUserAccessGroup(parseInt(device_group_id), userId);
+    const canAccess = await canUserAccessGroup(parseInt(device_group_id), companyId);
     if (!canAccess) {
       return res.status(404).json({ error: "Device group not found" });
     }
 
-    const playlist = await schedulePlaylist(parseInt(id), start_time, end_time || null, userId, parseInt(device_group_id));
+    const playlist = await schedulePlaylist(parseInt(id), companyId, start_time, end_time || null, parseInt(device_group_id));
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
@@ -447,6 +466,148 @@ export const schedulePlaylistHandler = async (req, res) => {
   } catch (error) {
     console.error("Error scheduling playlist:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Create a daily repeating schedule for a playlist
+export const createDailyScheduleHandler = async (req, res) => {
+  try {
+    const { id } = req.params; // playlist id
+    const { device_group_id, daily_start_time, daily_end_time, enabled } =
+      req.body;
+    const companyId = req.user.company_id;
+
+    if (!device_group_id) {
+      return res.status(400).json({ error: "Device group is required" });
+    }
+    if (!daily_start_time || !daily_end_time) {
+      return res
+        .status(400)
+        .json({ error: "Daily start and end time are required" });
+    }
+    if (daily_start_time >= daily_end_time) {
+      return res.status(400).json({
+        error: "Daily start time must be before daily end time",
+      });
+    }
+
+    const canAccess = await canUserAccessGroup(
+      parseInt(device_group_id),
+      companyId
+    );
+    if (!canAccess) {
+      return res.status(404).json({ error: "Device group not found" });
+    }
+
+    // Ensure playlist exists in this company
+    const playlist = await getPlaylistById(parseInt(id), companyId);
+    if (!playlist) {
+      return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    const schedule = await createDailySchedule({
+      companyId,
+      deviceGroupId: parseInt(device_group_id),
+      playlistId: parseInt(id),
+      dailyStartTime: daily_start_time,
+      dailyEndTime: daily_end_time,
+      timezone: "Asia/Dubai",
+      enabled: enabled === undefined ? true : Boolean(enabled),
+    });
+
+    return res.status(201).json({ success: true, schedule });
+  } catch (error) {
+    console.error("Error creating daily schedule:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// List schedules (optionally filtered)
+export const listSchedulesHandler = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const deviceGroupId = req.query.device_group_id
+      ? parseInt(req.query.device_group_id)
+      : null;
+    const playlistId = req.query.playlist_id
+      ? parseInt(req.query.playlist_id)
+      : null;
+
+    if (deviceGroupId) {
+      const canAccess = await canUserAccessGroup(deviceGroupId, companyId);
+      if (!canAccess) {
+        return res.status(404).json({ error: "Device group not found" });
+      }
+    }
+
+    const schedules = await listSchedules({
+      companyId,
+      deviceGroupId,
+      playlistId,
+    });
+    return res.json({ success: true, schedules });
+  } catch (error) {
+    console.error("Error listing schedules:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Update schedule
+export const updateScheduleHandler = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { scheduleId } = req.params;
+    const { daily_start_time, daily_end_time, enabled } = req.body;
+
+    const existing = await getScheduleById({
+      companyId,
+      scheduleId: parseInt(scheduleId),
+    });
+    if (!existing) {
+      return res.status(404).json({ error: "Schedule not found" });
+    }
+
+    const start = daily_start_time ?? existing.daily_start_time;
+    const end = daily_end_time ?? existing.daily_end_time;
+    if (start && end && start >= end) {
+      return res.status(400).json({
+        error: "Daily start time must be before daily end time",
+      });
+    }
+
+    const schedule = await updateSchedule({
+      companyId,
+      scheduleId: parseInt(scheduleId),
+      dailyStartTime: daily_start_time,
+      dailyEndTime: daily_end_time,
+      enabled,
+    });
+
+    return res.json({ success: true, schedule });
+  } catch (error) {
+    console.error("Error updating schedule:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Delete schedule
+export const deleteScheduleHandler = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { scheduleId } = req.params;
+
+    const deleted = await deleteSchedule({
+      companyId,
+      scheduleId: parseInt(scheduleId),
+    });
+    if (!deleted) {
+      return res.status(404).json({ error: "Schedule not found" });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting schedule:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 };
 

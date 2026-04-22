@@ -62,7 +62,7 @@ function SideNavigation({ onLogout, user }) {
           <span>Groups</span>
         </Link>
 
-        {user?.role === "Admin" && (
+        {(user?.role === "company_admin" || user?.role === "platform_super_admin") && (
           <Link
             to="/users"
             className={`nav-item ${location.pathname === "/users" ? "active" : ""}`}
@@ -74,6 +74,20 @@ function SideNavigation({ onLogout, user }) {
               <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
             </svg>
             <span>Users</span>
+          </Link>
+        )}
+
+        {user?.role === "platform_super_admin" && (
+          <Link
+            to="/companies"
+            className={`nav-item ${location.pathname === "/companies" ? "active" : ""}`}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 21h18"></path>
+              <path d="M5 21V7l8-4 8 4v14"></path>
+              <path d="M9 21v-8h6v8"></path>
+            </svg>
+            <span>Companies</span>
           </Link>
         )}
       </nav>

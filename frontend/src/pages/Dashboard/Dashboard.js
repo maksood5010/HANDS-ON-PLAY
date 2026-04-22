@@ -81,6 +81,18 @@ const formatLocalDateTime = (value) => {
 function Dashboard() {
   const navigate = useNavigate();
 
+  const companyName = (() => {
+    const raw = localStorage.getItem("user");
+    try {
+      const u = raw ? JSON.parse(raw) : null;
+      return u?.company_name || u?.companyName || "";
+    } catch {
+      return "";
+    }
+  })();
+
+  const headerTitle = companyName || "Dashboard";
+
   const [stats, setStats] = useState(null);
   const [recentPlaylists, setRecentPlaylists] = useState([]);
   const [activeDevices, setActiveDevices] = useState([]);
@@ -129,7 +141,7 @@ function Dashboard() {
       <div className="dashboard">
         <div className="dashboard-header">
           <div>
-            <h1>Dashboard</h1>
+            <h1>{headerTitle}</h1>
             <p>Loading your digital signage overview...</p>
           </div>
         </div>
@@ -142,7 +154,7 @@ function Dashboard() {
       <div className="dashboard">
         <div className="dashboard-header">
           <div>
-            <h1>Dashboard</h1>
+            <h1>{headerTitle}</h1>
             <p>{error || 'Unable to load dashboard data.'}</p>
           </div>
         </div>
@@ -154,7 +166,7 @@ function Dashboard() {
     <div className="dashboard">
       <div className="dashboard-header">
         <div>
-          <h1>Dashboard</h1>
+          <h1>{headerTitle}</h1>
           <p>Welcome back! Here's what's happening with your digital signage.</p>
         </div>
       </div>

@@ -1,24 +1,35 @@
 import pool from "../config/db.js";
 
-// Get all groups (shared across all users)
-// The userId parameter is kept for backwards compatibility but is not used.
-export const getGroupsByUserId = async (_userId) => {
-  const result = await pool.query(
-    `SELECT dg.*, 
-            COUNT(DISTINCT d.id) as device_count,
-            p.id as active_playlist_id,
-            p.name as active_playlist_name
-     FROM device_groups dg
-     LEFT JOIN devices d ON dg.id = d.group_id
-     LEFT JOIN playlists p ON p.device_group_id = dg.id AND p.status = 'active'
-     GROUP BY dg.id, p.id, p.name
-     ORDER BY dg.user_id NULLS FIRST, dg.created_at DESC`
+const ALL_DEVICES_GROUP_NAME = "All devices";
+
+export const ensureAllDevicesGroup = async (companyId, client = pool) => {
+  const result = await client.query(
+    `
+    INSERT INTO device_groups (company_id, name, user_id)
+    SELECT $1, $2::text, NULL
+    WHERE NOT EXISTS (
+      SELECT 1 FROM device_groups WHERE company_id = $1 AND name = $2::text
+    )
+    RETURNING id
+    `,
+    [companyId, ALL_DEVICES_GROUP_NAME]
   );
-  return result.rows;
+  if (result.rows.length > 0) return result.rows[0].id;
+
+  const existing = await client.query(
+    `SELECT id FROM device_groups WHERE company_id = $1 AND name = $2::text LIMIT 1`,
+    [companyId, ALL_DEVICES_GROUP_NAME]
+  );
+  return existing.rows[0]?.id ?? null;
 };
 
-// Get single group by id (shared across all users)
-export const getGroupById = async (groupId, _userId) => {
+const isAllDevicesGroupRow = (groupRow) =>
+  !!groupRow &&
+  groupRow.user_id === null &&
+  typeof groupRow.name === "string" &&
+  groupRow.name.trim() === ALL_DEVICES_GROUP_NAME;
+
+export const getGroupsByCompanyId = async (companyId) => {
   const result = await pool.query(
     `SELECT dg.*, 
             COUNT(DISTINCT d.id) as device_count,
@@ -27,82 +38,118 @@ export const getGroupById = async (groupId, _userId) => {
      FROM device_groups dg
      LEFT JOIN devices d ON dg.id = d.group_id
      LEFT JOIN playlists p ON p.device_group_id = dg.id AND p.status = 'active'
-     WHERE dg.id = $1
+     WHERE dg.company_id = $1
+     GROUP BY dg.id, p.id, p.name
+     ORDER BY dg.created_at DESC`,
+    [companyId]
+  );
+
+  const groups = result.rows;
+  const allDevices = groups.find((g) => isAllDevicesGroupRow(g));
+  if (!allDevices) return groups;
+
+  const countRes = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM devices WHERE company_id = $1`,
+    [companyId]
+  );
+  allDevices.device_count = countRes.rows[0]?.count ?? 0;
+  return groups;
+};
+
+export const getGroupById = async (groupId, companyId) => {
+  const result = await pool.query(
+    `SELECT dg.*, 
+            COUNT(DISTINCT d.id) as device_count,
+            p.id as active_playlist_id,
+            p.name as active_playlist_name
+     FROM device_groups dg
+     LEFT JOIN devices d ON dg.id = d.group_id
+     LEFT JOIN playlists p ON p.device_group_id = dg.id AND p.status = 'active'
+     WHERE dg.id = $1 AND dg.company_id = $2
      GROUP BY dg.id, p.id, p.name`,
-    [groupId]
+    [groupId, companyId]
   );
   return result.rows[0] || null;
 };
 
-// Get devices in a group (shared across all users)
-export const getDevicesInGroup = async (groupId, _userId) => {
+export const getDevicesInGroup = async (groupId, companyId) => {
+  const groupRes = await pool.query(
+    `SELECT id, name, user_id FROM device_groups WHERE id = $1 AND company_id = $2`,
+    [groupId, companyId]
+  );
+  const group = groupRes.rows[0] || null;
+  if (!group) return [];
+
+  if (isAllDevicesGroupRow(group)) {
+    const result = await pool.query(
+      `SELECT d.*, 
+              p.name as playlist_name,
+              p.status as playlist_status
+       FROM devices d
+       LEFT JOIN playlists p ON d.active_playlist_id = p.id
+       WHERE d.company_id = $1
+       ORDER BY d.created_at DESC`,
+      [companyId]
+    );
+    return result.rows;
+  }
+
   const result = await pool.query(
     `SELECT d.*, 
             p.name as playlist_name,
             p.status as playlist_status
      FROM devices d
      LEFT JOIN playlists p ON d.active_playlist_id = p.id
-     WHERE d.group_id = $1
+     WHERE d.group_id = $1 AND d.company_id = $2
      ORDER BY d.created_at DESC`,
-    [groupId]
+    [groupId, companyId]
   );
   return result.rows;
 };
 
-// Create a new group (still records creating user for reference)
-export const createGroup = async (name, userId) => {
+export const createGroup = async (companyId, name, userId) => {
   const result = await pool.query(
-    `INSERT INTO device_groups (name, user_id) 
-     VALUES ($1, $2) 
+    `INSERT INTO device_groups (company_id, name, user_id) 
+     VALUES ($1, $2, $3) 
      RETURNING *`,
-    [name.trim(), userId]
+    [companyId, name.trim(), userId]
   );
   return result.rows[0];
 };
 
-// Update group name (shared mode: allow any user to update non-global groups)
-export const updateGroup = async (groupId, name, _userId) => {
+export const updateGroup = async (groupId, companyId, name) => {
   const result = await pool.query(
     `UPDATE device_groups 
      SET name = $1, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2
+     WHERE id = $2 AND company_id = $3
      RETURNING *`,
-    [name.trim(), groupId]
+    [name.trim(), groupId, companyId]
   );
   return result.rows[0] || null;
 };
 
-// Delete group and move devices to global "All devices" group (shared mode)
-export const deleteGroup = async (groupId, _userId) => {
+export const deleteGroup = async (groupId, companyId) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Get the global "All devices" group id
-    const globalGroupResult = await client.query(
-      `SELECT id FROM device_groups WHERE name = 'All devices' AND user_id IS NULL LIMIT 1`
-    );
-    
-    if (globalGroupResult.rows.length === 0) {
-      throw new Error('Global "All devices" group not found');
-    }
-    
-    const globalGroupId = globalGroupResult.rows[0].id;
+    const allDevicesGroupId = await ensureAllDevicesGroup(companyId);
+    if (!allDevicesGroupId) throw new Error("All devices group not found");
 
     // Move all devices in this group to the global group
     await client.query(
       `UPDATE devices 
        SET group_id = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE group_id = $2`,
-      [globalGroupId, groupId]
+       WHERE group_id = $2 AND company_id = $3`,
+      [allDevicesGroupId, groupId, companyId]
     );
 
     // Delete the group
     const deleteResult = await client.query(
       `DELETE FROM device_groups 
-       WHERE id = $1
+       WHERE id = $1 AND company_id = $2
        RETURNING id`,
-      [groupId]
+      [groupId, companyId]
     );
 
     await client.query('COMMIT');
@@ -115,31 +162,23 @@ export const deleteGroup = async (groupId, _userId) => {
   }
 };
 
-// Update devices in a group (set membership exactly as specified, shared mode)
-export const updateGroupDevices = async (groupId, deviceIds, _userId) => {
+export const updateGroupDevices = async (groupId, companyId, deviceIds) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Get the global "All devices" group id
-    const globalGroupResult = await client.query(
-      `SELECT id FROM device_groups WHERE name = 'All devices' AND user_id IS NULL LIMIT 1`
-    );
-    
-    if (globalGroupResult.rows.length === 0) {
-      throw new Error('Global "All devices" group not found');
-    }
-    
-    const globalGroupId = globalGroupResult.rows[0].id;
+    const allDevicesGroupId = await ensureAllDevicesGroup(companyId);
+    if (!allDevicesGroupId) throw new Error("All devices group not found");
 
     // First, move all devices that were in this group but are not in the new list to "All devices"
     const deviceIdsArray = deviceIds.length > 0 ? deviceIds : [-1]; // Use -1 to ensure no matches if empty
     await client.query(
       `UPDATE devices 
        SET group_id = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE group_id = $2 
-         AND id != ALL($3::int[])`,
-      [globalGroupId, groupId, deviceIds]
+       WHERE company_id = $2
+         AND group_id = $3 
+         AND id != ALL($4::int[])`,
+      [allDevicesGroupId, companyId, groupId, deviceIdsArray]
     );
 
     // Then, move all selected devices to this group (only if they belong to the user)
@@ -147,8 +186,8 @@ export const updateGroupDevices = async (groupId, deviceIds, _userId) => {
       await client.query(
         `UPDATE devices 
          SET group_id = $1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ANY($2::int[])`,
-        [groupId, deviceIds]
+         WHERE company_id = $2 AND id = ANY($3::int[])`,
+        [groupId, companyId, deviceIds]
       );
     }
 
@@ -162,12 +201,11 @@ export const updateGroupDevices = async (groupId, deviceIds, _userId) => {
   }
 };
 
-// Check if group exists and is accessible (shared across all users)
-export const canUserAccessGroup = async (groupId, _userId) => {
+export const canUserAccessGroup = async (groupId, companyId) => {
   const result = await pool.query(
     `SELECT id FROM device_groups 
-     WHERE id = $1`,
-    [groupId]
+     WHERE id = $1 AND company_id = $2`,
+    [groupId, companyId]
   );
   return result.rows.length > 0;
 };

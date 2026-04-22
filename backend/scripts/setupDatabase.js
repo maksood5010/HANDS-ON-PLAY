@@ -1,21 +1,68 @@
 import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
 import { userExists, createUser } from "../models/userModel.js";
+import { bootstrapPlatform } from "./lib/bootstrapPlatformCore.js";
+
+const USER_ROLES = ["platform_super_admin", "company_admin", "company_user"];
+
+async function createCompaniesTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        purchase_date DATE NOT NULL,
+        payment_cycle VARCHAR(16) NOT NULL,
+        contact_name TEXT,
+        contact_email TEXT,
+        contact_phone TEXT,
+        device_limit INTEGER NOT NULL DEFAULT 0,
+        additional_info TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("Companies table created successfully!");
+
+    // Enforce allowed payment cycles (idempotent)
+    const chkExists = await pool.query(`
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'chk_companies_payment_cycle'
+        AND conrelid = 'companies'::regclass;
+    `);
+    if (chkExists.rows.length === 0) {
+      await pool.query(`
+        ALTER TABLE companies
+        ADD CONSTRAINT chk_companies_payment_cycle
+        CHECK (payment_cycle IN ('monthly', 'yearly', 'one_time'));
+      `);
+    }
+  } catch (error) {
+    console.error("Error creating companies table:", error);
+    throw error;
+  }
+}
 
 async function createUsersTable() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
         username VARCHAR(100) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        role VARCHAR(20) NOT NULL DEFAULT 'Admin',
+        role VARCHAR(32) NOT NULL DEFAULT 'company_user',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log("Users table created successfully!");
 
-    // Add constraint (idempotent) in case table existed before role/check were introduced
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_company_id ON users(company_id);
+    `);
+
+    // Add role constraint (idempotent) in case table existed before role/check were introduced
     const constraintExists = await pool.query(`
       SELECT 1
       FROM pg_constraint
@@ -26,24 +73,9 @@ async function createUsersTable() {
       await pool.query(`
         ALTER TABLE users
         ADD CONSTRAINT chk_users_role
-        CHECK (role IN ('Admin', 'Customer'));
+        CHECK (role IN ('${USER_ROLES.join("','")}'));
       `);
       console.log("Added CHECK constraint chk_users_role");
-    }
-
-    // Create a default user for testing (username: admin, password: admin123)
-    const defaultUsername = "admin";
-    const defaultPassword = "admin123";
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-
-    // Check if user already exists
-    const exists = await userExists(defaultUsername);
-
-    if (!exists) {
-      await createUser(defaultUsername, hashedPassword, "Admin");
-      console.log(`Default user created: ${defaultUsername} / ${defaultPassword}`);
-    } else {
-      console.log("Default user already exists");
     }
   } catch (error) {
     console.error("Error creating users table:", error);
@@ -57,6 +89,7 @@ async function createPlaylistTables() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS playlists (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         description TEXT,
         user_id INTEGER NOT NULL,
@@ -66,11 +99,15 @@ async function createPlaylistTables() {
       );
     `);
     console.log("Playlists table created successfully!");
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlists_company_id ON playlists(company_id);
+    `);
 
     // Create files table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS files (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         original_name VARCHAR(255) NOT NULL,
         stored_name VARCHAR(255) NOT NULL,
         file_path VARCHAR(500) NOT NULL,
@@ -83,11 +120,15 @@ async function createPlaylistTables() {
       );
     `);
     console.log("Files table created successfully!");
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_files_company_id ON files(company_id);
+    `);
 
     // Create playlist_items table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS playlist_items (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         playlist_id INTEGER NOT NULL,
         file_id INTEGER NOT NULL,
         duration INTEGER DEFAULT 5,
@@ -103,6 +144,9 @@ async function createPlaylistTables() {
     // Create index for better query performance
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_items_company_id ON playlist_items(company_id);
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_playlist_items_display_order ON playlist_items(playlist_id, display_order);
@@ -135,6 +179,7 @@ async function addPlaylistStatusFields() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         device_key VARCHAR(100) UNIQUE NOT NULL,
         user_id INTEGER NOT NULL,
@@ -151,6 +196,9 @@ async function addPlaylistStatusFields() {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_devices_device_key ON devices(device_key);
     `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_devices_company_id ON devices(company_id);
+    `);
     console.log("Indexes for devices created successfully!");
   } catch (error) {
     console.error("Error adding playlist status fields:", error);
@@ -164,12 +212,13 @@ async function createDeviceGroupsTable() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS device_groups (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         user_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        UNIQUE(user_id, name)
+        UNIQUE(company_id, name)
       );
     `);
     console.log("Device groups table created successfully!");
@@ -178,30 +227,10 @@ async function createDeviceGroupsTable() {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_device_groups_user_id ON device_groups(user_id);
     `);
-    console.log("Indexes for device_groups created successfully!");
-
-    // Insert global "All devices" group if it doesn't exist
-    const globalGroupResult = await pool.query(`
-      INSERT INTO device_groups (name, user_id)
-      SELECT 'All devices', NULL
-      WHERE NOT EXISTS (
-        SELECT 1 FROM device_groups WHERE name = 'All devices' AND user_id IS NULL
-      )
-      RETURNING id;
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_device_groups_company_id ON device_groups(company_id);
     `);
-    
-    let globalGroupId;
-    if (globalGroupResult.rows.length > 0) {
-      globalGroupId = globalGroupResult.rows[0].id;
-      console.log("Global 'All devices' group created with id:", globalGroupId);
-    } else {
-      // Get existing global group id
-      const existingGroup = await pool.query(`
-        SELECT id FROM device_groups WHERE name = 'All devices' AND user_id IS NULL LIMIT 1;
-      `);
-      globalGroupId = existingGroup.rows[0].id;
-      console.log("Global 'All devices' group already exists with id:", globalGroupId);
-    }
+    console.log("Indexes for device_groups created successfully!");
 
     // Add group_id column to devices table (nullable first)
     await pool.query(`
@@ -209,24 +238,6 @@ async function createDeviceGroupsTable() {
       ADD COLUMN IF NOT EXISTS group_id INTEGER;
     `);
     console.log("Added group_id column to devices table");
-
-    // Backfill: set all devices without a group to the global "All devices" group
-    const backfillResult = await pool.query(
-      `
-      UPDATE devices 
-      SET group_id = $1 
-      WHERE group_id IS NULL;
-    `,
-      [globalGroupId]
-    );
-    console.log(`Backfilled ${backfillResult.rowCount} devices with global group`);
-
-    // Now make group_id NOT NULL
-    await pool.query(`
-      ALTER TABLE devices 
-      ALTER COLUMN group_id SET NOT NULL;
-    `);
-    console.log("Made group_id NOT NULL");
 
     // Add foreign key constraint if missing
     const constraintExists = await pool.query(`
@@ -309,52 +320,44 @@ async function addDeviceLastSeen() {
   }
 }
 
+async function createPlaylistSchedulesTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playlist_schedules (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        device_group_id INTEGER NOT NULL REFERENCES device_groups(id) ON DELETE CASCADE,
+        playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        type VARCHAR(20) NOT NULL DEFAULT 'daily' CHECK (type IN ('daily')),
+        daily_start_time TIME NOT NULL,
+        daily_end_time TIME NOT NULL,
+        timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Dubai',
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("Playlist schedules table created successfully!");
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_schedules_company_group_enabled
+      ON playlist_schedules(company_id, device_group_id, enabled);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_schedules_company_playlist
+      ON playlist_schedules(company_id, playlist_id);
+    `);
+    console.log("Indexes for playlist_schedules created successfully!");
+  } catch (error) {
+    console.error("Error creating playlist_schedules table:", error);
+    throw error;
+  }
+}
+
 async function addUserRoleField() {
   try {
-    // 1) Add nullable role column if missing
-    await pool.query(`
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS role VARCHAR(20);
-    `);
-    console.log("Ensured users.role column exists (nullable)");
-
-    // 2) Backfill existing rows
-    const backfill = await pool.query(`
-      UPDATE users
-      SET role = 'Admin'
-      WHERE role IS NULL;
-    `);
-    console.log(`Backfilled ${backfill.rowCount} users with role=Admin`);
-
-    // 3) Make it NOT NULL with default
-    await pool.query(`
-      ALTER TABLE users
-      ALTER COLUMN role SET DEFAULT 'Admin';
-    `);
-    await pool.query(`
-      ALTER TABLE users
-      ALTER COLUMN role SET NOT NULL;
-    `);
-    console.log("Set users.role DEFAULT 'Admin' and NOT NULL");
-
-    // 4) Add constraint (idempotent)
-    const constraintExists = await pool.query(`
-      SELECT 1
-      FROM pg_constraint
-      WHERE conname = 'chk_users_role'
-        AND conrelid = 'users'::regclass;
-    `);
-
-    if (constraintExists.rows.length === 0) {
-      await pool.query(`
-        ALTER TABLE users
-        ADD CONSTRAINT chk_users_role
-        CHECK (role IN ('Admin', 'Customer'));
-      `);
-      console.log("Added CHECK constraint chk_users_role");
-    } else {
-      console.log("CHECK constraint chk_users_role already exists");
-    }
+    // Legacy no-op: roles are now created directly on users table creation.
+    return;
   } catch (error) {
     console.error("Error adding role field:", error);
     throw error;
@@ -364,13 +367,16 @@ async function addUserRoleField() {
 async function setupDatabase() {
   try {
     console.log("Starting database setup...");
+    await createCompaniesTable();
     await createUsersTable();
     await createPlaylistTables();
     await addPlaylistStatusFields();
     await createDeviceGroupsTable();
     await addDeviceGroupToPlaylists();
     await addDeviceLastSeen();
+    await createPlaylistSchedulesTable();
     await addUserRoleField();
+    await bootstrapPlatform({ pool });
     console.log("Database setup completed successfully.");
   } catch (error) {
     console.error("Database setup failed:", error);

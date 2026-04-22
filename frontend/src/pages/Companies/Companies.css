@@ -1,0 +1,40 @@
+.companies-page .group-icon-wrapper,
+.companies-page .detail-icon {
+  color: #8B5CF6;
+}
+
+.companies-slug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.companies-page .modal-content {
+  max-height: 85vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  will-change: scroll-position;
+}
+
+.companies-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.companies-full {
+  grid-column: 1 / -1;
+}
+
+/* Reduce scroll jank from expensive blur on this modal */
+.companies-page .modal-overlay {
+  backdrop-filter: none;
+}
+
+@media (max-width: 768px) {
+  .companies-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

@@ -8,6 +8,7 @@ import Playlists from "./pages/Playlists";
 import Devices from "./pages/Devices";
 import DeviceGroups from "./pages/DeviceGroups";
 import Users from "./pages/Users";
+import Companies from "./pages/Companies";
 
 function App() {
   // Initialize authentication state from localStorage synchronously
@@ -108,9 +109,25 @@ function App() {
           path="/users"
           element={
             isAuthenticated ? (
-              user?.role === "Admin" ? (
+              user?.role === "company_admin" || user?.role === "platform_super_admin" ? (
                 <Layout user={user} onLogout={handleLogout}>
                   <Users />
+                </Layout>
+              ) : (
+                <Navigate to="/dashboard" replace />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/companies"
+          element={
+            isAuthenticated ? (
+              user?.role === "platform_super_admin" ? (
+                <Layout user={user} onLogout={handleLogout}>
+                  <Companies />
                 </Layout>
               ) : (
                 <Navigate to="/dashboard" replace />

@@ -51,14 +51,15 @@ export const getActivePlaylistForDisplay = async (req, res) => {
 
     // Get device's group_id
     const deviceGroupId = device.group_id;
+    const companyId = device.company_id;
 
-    if (!deviceGroupId) {
+    if (!deviceGroupId || !companyId) {
       // Device has no group assigned, return placeholder
       return res.json(getPlaceholderPlaylist(req));
     }
 
     // Get active playlist for device's group
-    const playlist = await getActivePlaylist(deviceGroupId);
+    const playlist = await getActivePlaylist(companyId, deviceGroupId);
 
     if (!playlist) {
       // No playlist found for device group, return placeholder
@@ -66,7 +67,7 @@ export const getActivePlaylistForDisplay = async (req, res) => {
     }
 
     // Get playlist with all items (no userId check for public access)
-    const playlistWithItems = await getPlaylistWithItems(playlist.id, null);
+    const playlistWithItems = await getPlaylistWithItems(playlist.id, companyId);
 
     if (
       !playlistWithItems ||

@@ -27,6 +27,7 @@ export const authenticate = async (req, res, next) => {
     // Attach full user context to the request (including role)
     req.user = {
       id: user.id,
+      company_id: user.company_id,
       role: user.role,
     };
 
@@ -37,19 +38,40 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-// Admin-only authorization middleware: requires authenticate to have run first
-export const requireAdmin = (req, res, next) => {
+const ensureAuthenticated = (req, res) => {
+  const user = req.user;
+  if (!user || !user.id) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  if (!user.company_id) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  return user;
+};
+
+export const requirePlatformSuperAdmin = (req, res, next) => {
   try {
-    const user = req.user;
-
-    if (!user || !user.id) {
-      return res.status(401).json({ error: "Authentication required" });
+    const user = ensureAuthenticated(req, res);
+    if (!user) return;
+    if (user.role !== "platform_super_admin") {
+      return res.status(403).json({ error: "Platform super-admin access required" });
     }
+    next();
+  } catch (error) {
+    console.error("Authorization error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
-    // if (user.role !== "Admin") {
-    //   return res.status(403).json({ error: "Admin access required" });
-    // }
-
+export const requireCompanyAdminOrPlatformSuperAdmin = (req, res, next) => {
+  try {
+    const user = ensureAuthenticated(req, res);
+    if (!user) return;
+    if (user.role !== "company_admin" && user.role !== "platform_super_admin") {
+      return res.status(403).json({ error: "Company admin access required" });
+    }
     next();
   } catch (error) {
     console.error("Authorization error:", error);

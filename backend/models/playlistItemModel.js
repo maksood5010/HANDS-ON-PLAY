@@ -1,16 +1,16 @@
 import pool from "../config/db.js";
 
-export const addItemToPlaylist = async (playlistId, fileId, duration, displayOrder) => {
+export const addItemToPlaylist = async (companyId, playlistId, fileId, duration, displayOrder) => {
   const result = await pool.query(
-    `INSERT INTO playlist_items (playlist_id, file_id, duration, display_order)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO playlist_items (company_id, playlist_id, file_id, duration, display_order)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [playlistId, fileId, duration || 5, displayOrder]
+    [companyId, playlistId, fileId, duration || 5, displayOrder]
   );
   return result.rows[0];
 };
 
-export const getPlaylistItems = async (playlistId, _userId) => {
+export const getPlaylistItems = async (playlistId, companyId) => {
   const result = await pool.query(
     `SELECT 
       pi.id,
@@ -26,21 +26,20 @@ export const getPlaylistItems = async (playlistId, _userId) => {
       f.file_size
      FROM playlist_items pi
      INNER JOIN files f ON pi.file_id = f.id
-     WHERE pi.playlist_id = $1
+     WHERE pi.playlist_id = $1 AND pi.company_id = $2
      ORDER BY pi.display_order ASC`,
-    [playlistId]
+    [playlistId, companyId]
   );
   return result.rows;
 };
 
-export const getPlaylistWithItems = async (playlistId, _userId) => {
-  // Shared-data mode: any user can access any playlist by id
+export const getPlaylistWithItems = async (playlistId, companyId) => {
   const playlistResult = await pool.query(
     `SELECT p.*, dg.name AS device_group_name
      FROM playlists p
      LEFT JOIN device_groups dg ON p.device_group_id = dg.id
-     WHERE p.id = $1`,
-    [playlistId]
+     WHERE p.id = $1 AND p.company_id = $2`,
+    [playlistId, companyId]
   );
   
   if (playlistResult.rows.length === 0) {
@@ -64,9 +63,9 @@ export const getPlaylistWithItems = async (playlistId, _userId) => {
       f.file_size
      FROM playlist_items pi
      INNER JOIN files f ON pi.file_id = f.id
-     WHERE pi.playlist_id = $1
+     WHERE pi.playlist_id = $1 AND pi.company_id = $2
      ORDER BY pi.display_order ASC`,
-    [playlistId]
+    [playlistId, companyId]
   );
 
   return {
@@ -75,39 +74,39 @@ export const getPlaylistWithItems = async (playlistId, _userId) => {
   };
 };
 
-export const updateItemDuration = async (itemId, duration, _userId) => {
+export const updateItemDuration = async (itemId, companyId, duration) => {
   const result = await pool.query(
     `UPDATE playlist_items
      SET duration = $1
-     WHERE id = $2
+     WHERE id = $2 AND company_id = $3
      RETURNING *`,
-    [duration, itemId]
+    [duration, itemId, companyId]
   );
   return result.rows[0] || null;
 };
 
-export const getItemById = async (itemId, _userId) => {
+export const getItemById = async (itemId, companyId) => {
   const result = await pool.query(
     `SELECT *
      FROM playlist_items
-     WHERE id = $1`,
-    [itemId]
+     WHERE id = $1 AND company_id = $2`,
+    [itemId, companyId]
   );
   return result.rows[0] || null;
 };
 
-export const getItemByOrder = async (playlistId, displayOrder) => {
+export const getItemByOrder = async (playlistId, companyId, displayOrder) => {
   const result = await pool.query(
     `SELECT * FROM playlist_items
-     WHERE playlist_id = $1 AND display_order = $2`,
-    [playlistId, displayOrder]
+     WHERE playlist_id = $1 AND company_id = $2 AND display_order = $3`,
+    [playlistId, companyId, displayOrder]
   );
   return result.rows[0] || null;
 };
 
-export const swapItemOrder = async (itemId, direction, userId) => {
+export const swapItemOrder = async (itemId, companyId, direction) => {
   // Get current item
-  const currentItem = await getItemById(itemId, userId);
+  const currentItem = await getItemById(itemId, companyId);
   if (!currentItem) {
     return null;
   }
@@ -124,7 +123,7 @@ export const swapItemOrder = async (itemId, direction, userId) => {
   }
 
   // Get item at target position
-  const targetItem = await getItemByOrder(playlistId, targetOrder);
+  const targetItem = await getItemByOrder(playlistId, companyId, targetOrder);
   
   // If no item at target position, we can't swap (shouldn't happen in normal flow)
   if (!targetItem) {
@@ -142,30 +141,30 @@ export const swapItemOrder = async (itemId, direction, userId) => {
     
     // Set both to temporary values
     await client.query(
-      `UPDATE playlist_items SET display_order = $1 WHERE id = $2`,
-      [tempOrder1, itemId]
+      `UPDATE playlist_items SET display_order = $1 WHERE id = $2 AND company_id = $3`,
+      [tempOrder1, itemId, companyId]
     );
     await client.query(
-      `UPDATE playlist_items SET display_order = $1 WHERE id = $2`,
-      [tempOrder2, targetItem.id]
+      `UPDATE playlist_items SET display_order = $1 WHERE id = $2 AND company_id = $3`,
+      [tempOrder2, targetItem.id, companyId]
     );
     
     // Now swap to final positions
     await client.query(
-      `UPDATE playlist_items SET display_order = $1 WHERE id = $2`,
-      [targetOrder, itemId]
+      `UPDATE playlist_items SET display_order = $1 WHERE id = $2 AND company_id = $3`,
+      [targetOrder, itemId, companyId]
     );
     await client.query(
-      `UPDATE playlist_items SET display_order = $1 WHERE id = $2`,
-      [currentOrder, targetItem.id]
+      `UPDATE playlist_items SET display_order = $1 WHERE id = $2 AND company_id = $3`,
+      [currentOrder, targetItem.id, companyId]
     );
     
     await client.query('COMMIT');
     
     // Return updated item
     const result = await pool.query(
-      `SELECT * FROM playlist_items WHERE id = $1`,
-      [itemId]
+      `SELECT * FROM playlist_items WHERE id = $1 AND company_id = $2`,
+      [itemId, companyId]
     );
     return result.rows[0];
   } catch (error) {
@@ -176,9 +175,9 @@ export const swapItemOrder = async (itemId, direction, userId) => {
   }
 };
 
-export const updateItemOrder = async (itemId, newOrder, userId) => {
-  // This function is kept for backward compatibility but should use swapItemOrder instead
-  const currentItem = await getItemById(itemId, userId);
+export const updateItemOrder = async (itemId, companyId, newOrder) => {
+  // Kept for backward compatibility; uses swapItemOrder step-by-step.
+  const currentItem = await getItemById(itemId, companyId);
   if (!currentItem) {
     return null;
   }
@@ -192,29 +191,29 @@ export const updateItemOrder = async (itemId, newOrder, userId) => {
   // Swap step by step
   let result = currentItem;
   for (let i = 0; i < steps; i++) {
-    result = await swapItemOrder(itemId, direction, userId);
+    result = await swapItemOrder(itemId, companyId, direction);
     if (!result) break;
   }
   
   return result;
 };
 
-export const deleteItem = async (itemId, _userId) => {
+export const deleteItem = async (itemId, companyId) => {
   const result = await pool.query(
     `DELETE FROM playlist_items
-     WHERE id = $1
+     WHERE id = $1 AND company_id = $2
      RETURNING *`,
-    [itemId]
+    [itemId, companyId]
   );
   return result.rows[0] || null;
 };
 
-export const getNextDisplayOrder = async (playlistId) => {
+export const getNextDisplayOrder = async (playlistId, companyId) => {
   const result = await pool.query(
     `SELECT COALESCE(MAX(display_order), 0) + 1 as next_order
      FROM playlist_items
-     WHERE playlist_id = $1`,
-    [playlistId]
+     WHERE playlist_id = $1 AND company_id = $2`,
+    [playlistId, companyId]
   );
   return result.rows[0].next_order;
 };

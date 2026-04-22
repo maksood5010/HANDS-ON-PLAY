@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireCompanyAdminOrPlatformSuperAdmin } from "../middleware/auth.js";
 import {
   createUserHandler,
   deleteUserHandler,
@@ -10,7 +10,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
-router.use(requireAdmin);
+router.use(requireCompanyAdminOrPlatformSuperAdmin);
 
 router.get("/users", listUsersHandler);
 router.post("/users", createUserHandler);

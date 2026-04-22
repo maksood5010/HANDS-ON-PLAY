@@ -12,22 +12,20 @@ const generateDeviceKey = () => {
   return key;
 };
 
-export const createDevice = async (name, userId, groupId) => {
+export const createDevice = async (companyId, name, userId, groupId) => {
   // Generate unique 6-character device key
   const deviceKey = generateDeviceKey();
   
   const result = await pool.query(
-    `INSERT INTO devices (name, device_key, user_id, group_id) 
-     VALUES ($1, $2, $3, $4) 
+    `INSERT INTO devices (company_id, name, device_key, user_id, group_id) 
+     VALUES ($1, $2, $3, $4, $5) 
      RETURNING *`,
-    [name, deviceKey, userId, groupId]
+    [companyId, name, deviceKey, userId, groupId]
   );
   return result.rows[0];
 };
 
-// In shared-data mode, return all devices regardless of user.
-// The userId parameter is kept for backwards compatibility but is not used.
-export const getDevicesByUserId = async (_userId) => {
+export const getDevicesByCompanyId = async (companyId) => {
   const result = await pool.query(
     `SELECT d.*, 
             p.name as playlist_name,
@@ -39,7 +37,9 @@ export const getDevicesByUserId = async (_userId) => {
      FROM devices d
      LEFT JOIN playlists p ON d.active_playlist_id = p.id
      LEFT JOIN device_groups g ON d.group_id = g.id
-     ORDER BY d.created_at DESC`
+     WHERE d.company_id = $1
+     ORDER BY d.created_at DESC`,
+    [companyId]
   );
   return result.rows;
 };
@@ -60,36 +60,36 @@ export const updateDeviceLastSeen = async (deviceKey) => {
   return result.rowCount > 0;
 };
 
-export const updateDevicePlaylist = async (deviceId, playlistId, userId) => {
+export const updateDevicePlaylist = async (deviceId, companyId, playlistId) => {
   const result = await pool.query(
     `UPDATE devices 
      SET active_playlist_id = $1, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2
+     WHERE id = $2 AND company_id = $3
      RETURNING *`,
-    [playlistId, deviceId]
+    [playlistId, deviceId, companyId]
   );
   return result.rows[0] || null;
 };
 
-export const getDeviceById = async (deviceId, userId) => {
+export const getDeviceById = async (deviceId, companyId) => {
   const result = await pool.query(
     `SELECT d.*, 
             g.id as group_id,
             g.name as group_name
      FROM devices d
      LEFT JOIN device_groups g ON d.group_id = g.id
-     WHERE d.id = $1`,
-    [deviceId]
+     WHERE d.id = $1 AND d.company_id = $2`,
+    [deviceId, companyId]
   );
   return result.rows[0] || null;
 };
 
-export const deleteDevice = async (deviceId, userId) => {
+export const deleteDevice = async (deviceId, companyId) => {
   const result = await pool.query(
     `DELETE FROM devices 
-     WHERE id = $1
+     WHERE id = $1 AND company_id = $2
      RETURNING id`,
-    [deviceId]
+    [deviceId, companyId]
   );
   return result.rows[0] || null;
 };

@@ -2,9 +2,14 @@ import "./Users.css";
 import { useEffect, useMemo, useState } from "react";
 import { userAPI } from "../../services/api";
 
-const roles = ["Admin", "Customer"];
+const roles = ["company_admin", "company_user"];
 
-const roleLabel = (role) => (role === "Customer" ? "User" : role);
+const roleLabel = (role) => {
+  if (role === "company_user") return "User";
+  if (role === "company_admin") return "Admin";
+  if (role === "platform_super_admin") return "Platform Super Admin";
+  return role || "User";
+};
 
 function Users() {
   const [users, setUsers] = useState([]);
@@ -125,7 +130,7 @@ function Users() {
         <div className="header-content">
           <div>
             <h1>Users</h1>
-            <p>Admin-only user management</p>
+            <p>Company user management</p>
           </div>
           <button
             className="create-btn"
@@ -204,6 +209,12 @@ function Users() {
                     <h3>{u.username}</h3>
                     <div className="group-meta">
                       <span className="device-count-badge">{roleLabel(u.role)}</span>
+                      {u.company_name && (
+                        <>
+                          <span className="meta-separator">•</span>
+                          <span className="global-badge">{u.company_name}</span>
+                        </>
+                      )}
                       {isMe && (
                         <>
                           <span className="meta-separator">•</span>
@@ -255,6 +266,12 @@ function Users() {
                     <div className="info-item">
                       <span className="info-label">Role</span>
                       <span className="info-value">{roleLabel(selectedUser.role)}</span>
+                    </div>
+                    <div className="info-item">
+                      <span className="info-label">Company</span>
+                      <span className="info-value">
+                        {selectedUser.company_name || selectedUser.company_id || "—"}
+                      </span>
                     </div>
                     {selectedUser.created_at && (
                       <div className="info-item">

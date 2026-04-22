@@ -2,10 +2,20 @@ import pool from "../config/db.js";
 
 async function createPlaylistTables() {
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Create playlists table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS playlists (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         description TEXT,
         user_id INTEGER NOT NULL,
@@ -15,11 +25,15 @@ async function createPlaylistTables() {
       );
     `);
     console.log("Playlists table created successfully!");
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlists_company_id ON playlists(company_id);
+    `);
 
     // Create files table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS files (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         original_name VARCHAR(255) NOT NULL,
         stored_name VARCHAR(255) NOT NULL,
         file_path VARCHAR(500) NOT NULL,
@@ -32,11 +46,15 @@ async function createPlaylistTables() {
       );
     `);
     console.log("Files table created successfully!");
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_files_company_id ON files(company_id);
+    `);
 
     // Create playlist_items table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS playlist_items (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         playlist_id INTEGER NOT NULL,
         file_id INTEGER NOT NULL,
         duration INTEGER DEFAULT 5,
@@ -52,6 +70,9 @@ async function createPlaylistTables() {
     // Create index for better query performance
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_playlist_items_company_id ON playlist_items(company_id);
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_playlist_items_display_order ON playlist_items(playlist_id, display_order);

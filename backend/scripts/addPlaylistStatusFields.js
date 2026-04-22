@@ -21,6 +21,7 @@ async function addPlaylistStatusFields() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
         device_key VARCHAR(100) UNIQUE NOT NULL,
         user_id INTEGER NOT NULL,
@@ -36,6 +37,9 @@ async function addPlaylistStatusFields() {
     // Create index for device_key
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_devices_device_key ON devices(device_key);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_devices_company_id ON devices(company_id);
     `);
     console.log("Indexes created successfully!");
 
