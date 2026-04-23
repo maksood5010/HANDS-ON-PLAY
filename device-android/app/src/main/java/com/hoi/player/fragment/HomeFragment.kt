@@ -7,11 +7,19 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.viewpager2.widget.ViewPager2
+import androidx.core.content.ContextCompat
+import kotlin.math.abs
+import com.hoi.player.MainActivity
 import com.hoi.player.adapter.PlaylistPagerAdapter
 import com.hoi.player.databinding.FragmentHomeBinding
+import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
 
@@ -30,6 +38,14 @@ class HomeFragment : Fragment() {
 
     private lateinit var adapter: PlaylistPagerAdapter
 
+    private val refreshReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Constants.ACTION_PLAYLIST_REFRESH) {
+                deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
+            }
+        }
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -41,9 +57,16 @@ class HomeFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        binding.btnSettings.setOnClickListener {
+            if (binding.placeholderImage.visibility == View.VISIBLE) {
+                (requireActivity() as MainActivity).replaceFragment(SettingsFragment(), true)
+            }
+        }
+
         deviceKey = PreferencesManager.get<String>("device_key")
         if (deviceKey == null) {
             Log.e("HomeFragment", "No device key found")
+            updatePlaceholder(hasItems = false)
             return
         }
 
@@ -55,6 +78,14 @@ class HomeFragment : Fragment() {
         )
 
         binding.viewPager.adapter = adapter
+        // Fade transition instead of vertical "scroll up" slide.
+        binding.viewPager.setPageTransformer { page, position ->
+            // position: 0 = centered, -1 = one page above, 1 = one page below
+            val pageHeight = page.height.toFloat()
+            // Cancel the default vertical slide so only alpha changes.
+            page.translationY = -position * pageHeight
+            page.alpha = 1f - abs(position).coerceIn(0f, 1f)
+        }
         binding.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
@@ -65,14 +96,19 @@ class HomeFragment : Fragment() {
         })
 
         viewModel.playlistResult.observe(viewLifecycleOwner) { result ->
-            result?.playlist?.items?.let { items ->
-                val sortedItems = items.sortedBy { it.displayOrder ?: Int.MAX_VALUE }
-                adapter.submitList(sortedItems)
+            val items = result?.playlist?.items
+            val sortedItems = items
+                ?.sortedBy { it.displayOrder ?: Int.MAX_VALUE }
+                .orEmpty()
+
+            adapter.submitList(sortedItems)
+            adapter.onPlaylistRefreshed()
+            updatePlaceholder(hasItems = sortedItems.isNotEmpty())
+
+            if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
                 adapter.currentPosition = 0
-                if (sortedItems.isNotEmpty()) {
-                    startAdvanceForPosition(0)
-                }
+                startAdvanceForPosition(0)
             }
         }
 
@@ -86,12 +122,20 @@ class HomeFragment : Fragment() {
                     handler.postDelayed({
                         deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
                     }, 30_000)
+                } else {
+                    updatePlaceholder(hasItems = false)
                 }
             }
         }
 
         viewModel.startHeartbeat(deviceKey!!)
         viewModel.fetchPlaylist(deviceKey!!)
+    }
+
+    private fun updatePlaceholder(hasItems: Boolean) {
+        binding.placeholderImage.visibility = if (hasItems) View.GONE else View.VISIBLE
+        binding.viewPager.visibility = if (hasItems) View.VISIBLE else View.GONE
+        binding.btnSettings.visibility = if (hasItems) View.GONE else View.VISIBLE
     }
 
     private fun startAdvanceForPosition(position: Int) {
@@ -128,5 +172,26 @@ class HomeFragment : Fragment() {
         binding.viewPager.adapter = null
         viewModel.stopHeartbeat()
         super.onDestroyView()
+    }
+
+    override fun onStop() {
+        try {
+            requireContext().unregisterReceiver(refreshReceiver)
+        } catch (_: Throwable) {
+        }
+        if (::adapter.isInitialized) {
+            adapter.pausePlayback()
+        }
+        super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            requireContext(),
+            refreshReceiver,
+            IntentFilter(Constants.ACTION_PLAYLIST_REFRESH),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 }

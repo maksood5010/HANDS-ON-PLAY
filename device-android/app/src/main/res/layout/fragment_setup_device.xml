@@ -4,30 +4,68 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#C39898"
+    android:background="#fff"
     tools:context=".fragment.SetupDeviceFragment">
 
-
-    <EditText
-        android:id="@+id/etDeviceKey"
+    <ImageView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:ems="16"
-        android:inputType="text"
-        android:paddingVertical="18dp"
-        android:hint="Enter the device Key"
+        android:adjustViewBounds="true"
+        android:src="@drawable/logo"
+        android:paddingHorizontal="100dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toEndOf="@+id/btnSubmit"
+        app:layout_constraintStart_toStartOf="@+id/btnSubmit"
+        app:layout_constraintTop_toBottomOf="@+id/btnSubmit" />
+
+    <TextView
+        android:id="@+id/textView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="50dp"
+        android:text="Setup device"
+        android:textSize="30sp"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <EditText
+        android:id="@+id/etBaseUrl"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_margin="20dp"
+        android:ems="16"
+        android:hint="Base API URL (http://...:5041/)"
+        android:importantForAutofill="no"
+        android:inputType="textUri"
+        android:paddingVertical="24dp"
+        android:textSize="22sp"
+        app:layout_constraintEnd_toEndOf="@+id/textView"
+        app:layout_constraintStart_toStartOf="@+id/textView"
+        app:layout_constraintTop_toBottomOf="@+id/textView" />
+
+    <EditText
+        android:id="@+id/etDeviceKey"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_margin="20dp"
+        android:ems="16"
+        android:textSize="30sp"
+        android:hint="Enter the device Key"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:paddingVertical="24dp"
+        app:layout_constraintEnd_toEndOf="@+id/textView"
+        app:layout_constraintStart_toStartOf="@+id/textView"
+        app:layout_constraintTop_toBottomOf="@+id/etBaseUrl" />
+
     <Button
         android:id="@+id/btnSubmit"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_margin="10dp"
-        android:minEms="10"
+        android:layout_margin="20dp"
         android:text="Submit"
+        android:paddingVertical="24dp"
+        android:textSize="30sp"
         app:layout_constraintEnd_toEndOf="@+id/etDeviceKey"
         app:layout_constraintStart_toStartOf="@+id/etDeviceKey"
         app:layout_constraintTop_toBottomOf="@+id/etDeviceKey" />

@@ -7,6 +7,7 @@ import {
   updatePlaylistStatus,
   schedulePlaylist
 } from "../models/playlistModel.js";
+import { getFirebaseMessaging } from "../utils/firebaseAdmin.js";
 import { canUserAccessGroup } from "../models/deviceGroupModel.js";
 import {
   getPlaylistWithItems,
@@ -407,6 +408,25 @@ export const setPlaylistActiveHandler = async (req, res) => {
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    // Push a refresh event to all displays in this (company, group) via FCM Topic.
+    // Topic name is deterministic; devices subscribe client-side.
+    const topic = `c_${companyId}_g_${parseInt(device_group_id)}`;
+    try {
+      const messageId = await getFirebaseMessaging().send({
+        topic,
+        data: {
+          type: "playlist_refresh",
+          company_id: String(companyId),
+          group_id: String(device_group_id),
+          playlist_id: String(playlist.id ?? parseInt(id)),
+        },
+      });
+      console.log(`FCM sent to topic=${topic} messageId=${messageId}`);
+    } catch (e) {
+      // Do not fail the API call if push fails; displays still refresh at end-of-playlist.
+      console.warn("FCM topic send failed", e?.message ?? e);
     }
 
     res.json({ success: true, playlist });

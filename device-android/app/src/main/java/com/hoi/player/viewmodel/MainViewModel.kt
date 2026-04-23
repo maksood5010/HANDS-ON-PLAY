@@ -23,6 +23,7 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
 
     private var heartbeatJob: Job? = null
+    private var validateJob: Job? = null
 
     private val _deviceValidationResult = MutableLiveData<ValidateDeviceResponse?>()
     val deviceValidationResult: LiveData<ValidateDeviceResponse?> = _deviceValidationResult
@@ -37,7 +38,8 @@ class MainViewModel @Inject constructor(
     val playlistError: LiveData<String?> = _playlistError
 
     fun validateDeviceKey(deviceKey: String) {
-        viewModelScope.launch {
+        validateJob?.cancel()
+        validateJob = viewModelScope.launch {
             try {
                 val response = apiService.validateDeviceKey(deviceKey)
                 if (response.isSuccessful) {
@@ -52,6 +54,11 @@ class MainViewModel @Inject constructor(
                 _deviceValidationError.value = e.message ?: "Unknown error"
             }
         }
+    }
+
+    fun cancelValidateDeviceKey() {
+        validateJob?.cancel()
+        validateJob = null
     }
 
     fun fetchPlaylist(deviceKey: String) {

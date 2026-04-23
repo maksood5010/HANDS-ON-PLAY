@@ -2,12 +2,11 @@ package com.hoi.player
 
 import android.os.Bundle
 import android.util.Log
-import android.view.View
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.Fragment
 import com.hoi.player.databinding.ActivityMainBinding
 import com.hoi.player.fragment.HomeFragment
@@ -27,18 +26,9 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
-        window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        or View.SYSTEM_UI_FLAG_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        hideSystemBars()
 //        KioskUtil.setDeviceOwner(this)
 //        KioskUtil.removeDeviceOwner(this)
         val deviceKey= PreferencesManager.get<String>("device_key")
@@ -48,6 +38,18 @@ class MainActivity : AppCompatActivity() {
             replaceFragment(HomeFragment(),false)
         }
 
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.statusBars())
     }
 
     fun replaceFragment(fragment: Fragment, back: Boolean = true) {

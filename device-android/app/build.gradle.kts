@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.google.services)
     id("kotlin-kapt")
 }
 hilt {
@@ -59,6 +60,8 @@ dependencies {
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 
+    implementation(libs.firebase.messaging)
+
     implementation("com.squareup.retrofit2:retrofit:2.0.2")
     implementation("com.squareup.retrofit2:converter-gson:2.0.2")
     implementation("com.squareup.okhttp3:logging-interceptor:4.3.1")
@@ -79,6 +82,7 @@ dependencies {
 // ExoPlayer (media3) for video with disk cache
     implementation("androidx.media3:media3-exoplayer:1.2.0")
     implementation("androidx.media3:media3-ui:1.2.0")
+    implementation("androidx.media3:media3-session:1.2.0")
     implementation("androidx.media3:media3-database:1.2.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.2.0")
 

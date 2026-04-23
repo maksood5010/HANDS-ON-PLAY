@@ -2,31 +2,16 @@ import { getActivePlaylist } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
 import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
 
-// Helper function to return placeholder playlist
-const getPlaceholderPlaylist = (req) => {
-  const placeholderPath = "placeholder/handson.png";
-  return {
-    success: true,
-    playlist: {
-      id: 0,
-      name: "Placeholder",
-      description: "No active playlist assigned",
-      status: "active",
-      items: [
-        {
-          id: 0,
-          file_id: 0,
-          duration: 5,
-          display_order: 1,
-          file_type: "image",
-          file_url: `${req.protocol}://${req.get("host")}/uploads/${placeholderPath}`,
-          original_name: "handson.png",
-          mime_type: "image/png",
-        },
-      ],
-    },
-  };
-};
+const getEmptyPlaylistResponse = () => ({
+  success: true,
+  playlist: {
+    id: null,
+    name: null,
+    description: null,
+    status: null,
+    items: [],
+  },
+});
 
 // Get active playlist (public endpoint - no authentication required)
 export const getActivePlaylistForDisplay = async (req, res) => {
@@ -34,16 +19,18 @@ export const getActivePlaylistForDisplay = async (req, res) => {
     const { device_key } = req.query;
 
     if (!device_key) {
-      // If no device_key provided, return placeholder
-      return res.json(getPlaceholderPlaylist(req));
+      return res.status(400).json({
+        success: false,
+        error: "device_key is required",
+      });
     }
 
     // Look up device by device_key
     const device = await getDeviceByKey(device_key);
 
     if (!device) {
-      // Device not found, return placeholder
-      return res.json(getPlaceholderPlaylist(req));
+      // Device not found -> allow client to show its own placeholder UI
+      return res.json(getEmptyPlaylistResponse());
     }
 
     // Update last_seen_at so device shows as online
@@ -54,16 +41,16 @@ export const getActivePlaylistForDisplay = async (req, res) => {
     const companyId = device.company_id;
 
     if (!deviceGroupId || !companyId) {
-      // Device has no group assigned, return placeholder
-      return res.json(getPlaceholderPlaylist(req));
+      // Device has no group/company -> allow client to show its own placeholder UI
+      return res.json(getEmptyPlaylistResponse());
     }
 
     // Get active playlist for device's group
     const playlist = await getActivePlaylist(companyId, deviceGroupId);
 
     if (!playlist) {
-      // No playlist found for device group, return placeholder
-      return res.json(getPlaceholderPlaylist(req));
+      // No playlist assigned -> allow client to show its own placeholder UI
+      return res.json(getEmptyPlaylistResponse());
     }
 
     // Get playlist with all items (no userId check for public access)
@@ -74,8 +61,8 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       !playlistWithItems.items ||
       playlistWithItems.items.length === 0
     ) {
-      // Playlist has no items, return placeholder
-      return res.json(getPlaceholderPlaylist(req));
+      // Playlist has no items -> allow client to show its own placeholder UI
+      return res.json(getEmptyPlaylistResponse());
     }
 
     // Format items with full file URLs
@@ -102,8 +89,8 @@ export const getActivePlaylistForDisplay = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching active playlist:", error);
-    // On error, return placeholder instead of error
-    return res.json(getPlaceholderPlaylist(req));
+    // Keep displays resilient: return empty payload so client can show local placeholder UI.
+    return res.json(getEmptyPlaylistResponse());
   }
 };
 
@@ -134,6 +121,7 @@ export const validateDeviceKey = async (req, res) => {
       device: {
         id: device.id,
         name: device.name,
+        company_id: device.company_id,
         group_id: device.group_id,
       },
     });

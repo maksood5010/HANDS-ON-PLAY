@@ -1,31 +1,36 @@
 package com.hoi.player.adapter
 
+import android.content.ComponentName
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import androidx.annotation.OptIn
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.common.PlaybackException
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
-import com.hoi.player.MyApp
 import com.hoi.player.R
 import com.hoi.player.models.PlaylistItem
 import androidx.media3.ui.PlayerView
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
+import com.hoi.player.playback.PlaybackService
 
 class PlaylistPagerAdapter(
     private val onVideoEnded: () -> Unit,
     private val onVideoError: () -> Unit
 ) : ListAdapter<PlaylistItem, RecyclerView.ViewHolder>(PlaylistItemDiffCallback()) {
+
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var controller: MediaController? = null
+    private var controllerListener: Player.Listener? = null
+    private var currentVideoUrl: String? = null
 
     var currentPosition: Int = 0
         set(value) {
@@ -50,9 +55,10 @@ class PlaylistPagerAdapter(
                 ImageViewHolder(view)
             }
             TYPE_VIDEO -> {
+                ensureController(parent)
                 val view = LayoutInflater.from(parent.context)
                     .inflate(R.layout.item_playlist_video, parent, false)
-                VideoViewHolder(view, onVideoEnded, onVideoError)
+                VideoViewHolder(view, ::handleBindVideo)
             }
             else -> throw IllegalArgumentException("Unknown view type: $viewType")
         }
@@ -73,6 +79,23 @@ class PlaylistPagerAdapter(
         }
     }
 
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        releaseController()
+    }
+
+    fun pausePlayback() {
+        controller?.pause()
+    }
+
+    /**
+     * Call this when a brand-new playlist is loaded (e.g., after hitting the end and re-fetching).
+     * It forces the next visible video item to re-prepare even if the URL matches the previous one.
+     */
+    fun onPlaylistRefreshed() {
+        currentVideoUrl = null
+    }
+
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val imageView: ImageView = view.findViewById(R.id.imageView)
 
@@ -86,56 +109,101 @@ class PlaylistPagerAdapter(
         }
     }
 
-    @OptIn(UnstableApi::class)
     class VideoViewHolder(
         view: View,
-        private val onVideoEnded: () -> Unit,
-        private val onVideoError: () -> Unit
+        private val binder: (playerView: PlayerView, item: PlaylistItem, isCurrentPage: Boolean) -> Unit
     ) : RecyclerView.ViewHolder(view) {
 
         private val playerView: PlayerView = view.findViewById(R.id.playerView)
-        private var player: ExoPlayer? = null
 
         fun bind(item: PlaylistItem, isCurrentPage: Boolean) {
-            release()
-            val url = item.fileUrl ?: return
-            val context = itemView.context.applicationContext
-
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            val cacheDataSourceFactory = CacheDataSource.Factory()
-                .setCache(MyApp.exoCache)
-                .setUpstreamDataSourceFactory(httpDataSourceFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-            val mediaSourceFactory = ProgressiveMediaSource.Factory(cacheDataSourceFactory)
-            val exoPlayer = ExoPlayer.Builder(context)
-                .setMediaSourceFactory(mediaSourceFactory)
-                .build()
-                .apply {
-                    setMediaItem(MediaItem.fromUri(url))
-                    repeatMode = Player.REPEAT_MODE_OFF
-                    playWhenReady = isCurrentPage
-                    addListener(object : Player.Listener {
-                        override fun onPlaybackStateChanged(playbackState: Int) {
-                            if (playbackState == Player.STATE_ENDED) {
-                                onVideoEnded()
-                            }
-                        }
-                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                            onVideoError()
-                        }
-                    })
-                    prepare()
-                }
-            player = exoPlayer
-            playerView.player = exoPlayer
+            binder(playerView, item, isCurrentPage)
         }
 
         fun release() {
-            player?.release()
-            player = null
             playerView.player = null
         }
+    }
+
+    private fun ensureController(parent: ViewGroup) {
+        if (controller != null || controllerFuture != null) return
+
+        val context = parent.context.applicationContext
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        controllerFuture = future
+
+        future.addListener(
+            {
+                try {
+                    val built = future.get()
+                    controller = built
+                    attachControllerListener(built)
+                    notifyDataSetChanged()
+                } catch (t: Throwable) {
+                    Log.e("PlaylistPagerAdapter", "Failed to build MediaController", t)
+                    controllerFuture = null
+                }
+            },
+            MoreExecutors.directExecutor()
+        )
+    }
+
+    private fun attachControllerListener(ctrl: MediaController) {
+        if (controllerListener != null) return
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    onVideoEnded()
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                onVideoError()
+            }
+        }
+        ctrl.addListener(listener)
+        controllerListener = listener
+    }
+
+    private fun handleBindVideo(playerView: PlayerView, item: PlaylistItem, isCurrentPage: Boolean) {
+        val url = item.fileUrl ?: return
+        val ctrl = controller
+
+        // Always detach until controller exists, to avoid a stale player reference.
+        playerView.player = ctrl
+
+        if (ctrl == null) return
+
+        if (isCurrentPage) {
+            if (currentVideoUrl != url) {
+                currentVideoUrl = url
+                ctrl.setMediaItem(PlaybackService.mediaItem(url))
+                ctrl.prepare()
+            }
+            // If the same URL is reused and the player is in ENDED, explicitly restart.
+            if (ctrl.playbackState == Player.STATE_ENDED) {
+                ctrl.seekTo(0)
+            }
+            ctrl.playWhenReady = true
+            ctrl.play()
+        } else {
+            ctrl.pause()
+        }
+    }
+
+    private fun releaseController() {
+        controllerListener?.let { listener ->
+            controller?.removeListener(listener)
+        }
+        controllerListener = null
+
+        controller?.release()
+        controller = null
+
+        controllerFuture?.cancel(true)
+        controllerFuture = null
+        currentVideoUrl = null
     }
 
     private class PlaylistItemDiffCallback : DiffUtil.ItemCallback<PlaylistItem>() {

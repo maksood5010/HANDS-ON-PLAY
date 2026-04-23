@@ -9,6 +9,10 @@ package-lock.json
 .env.test.local
 .env.production.local
 
+# Firebase / secrets
+backend/keys/serviceAccount.json
+device-android/app/google-services.json
+
 # Build outputs
 frontend/build/
 backend/uploads/

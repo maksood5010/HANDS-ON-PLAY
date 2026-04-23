@@ -1,25 +1,21 @@
 import './Devices.css';
 import { useState, useEffect } from 'react';
-import { deviceAPI, playlistAPI, deviceGroupAPI } from '../../services/api';
+import { deviceAPI, deviceGroupAPI } from '../../services/api';
 
 function Devices() {
   const [devices, setDevices] = useState([]);
-  const [playlists, setPlaylists] = useState([]);
   const [groups, setGroups] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [error, setError] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
   const [showDeviceKey, setShowDeviceKey] = useState(false);
 
   useEffect(() => {
     fetchDevices();
-    fetchPlaylists();
     fetchGroups();
   }, []);
 
@@ -32,15 +28,6 @@ function Devices() {
       setError(err.response?.data?.error || 'Failed to fetch devices');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchPlaylists = async () => {
-    try {
-      const response = await playlistAPI.getPlaylists();
-      setPlaylists(response.playlists || []);
-    } catch (err) {
-      console.error('Failed to fetch playlists:', err);
     }
   };
 
@@ -101,29 +88,6 @@ function Devices() {
       fetchDevices();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to delete device');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAssignPlaylist = async (e) => {
-    e.preventDefault();
-
-    try {
-      setLoading(true);
-      setError('');
-      await deviceAPI.assignPlaylist(
-        selectedDevice.id,
-        selectedPlaylistId ? parseInt(selectedPlaylistId) : null
-      );
-      setShowPlaylistModal(false);
-      setSelectedPlaylistId('');
-      fetchDevices();
-      // Refresh selected device
-      const response = await deviceAPI.getDevice(selectedDevice.id);
-      setSelectedDevice(response.device);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to assign playlist');
     } finally {
       setLoading(false);
     }
@@ -324,50 +288,6 @@ function Devices() {
                 </div>
 
                 <div className="detail-section">
-                  <h3>Assigned Playlist</h3>
-                  <p className="section-description">Content that will be displayed on this device</p>
-                  <div className="playlist-assignment">
-                    {selectedDevice.playlist_name ? (
-                      <div className="assigned-playlist">
-                        <div className="playlist-icon">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                          </svg>
-                        </div>
-                        <div className="playlist-info">
-                          <span className="playlist-name">{selectedDevice.playlist_name}</span>
-                          <span className={`playlist-status ${selectedDevice.playlist_status || 'inactive'}`}>
-                            {selectedDevice.playlist_status || 'inactive'}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="no-playlist">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <line x1="12" y1="8" x2="12" y2="12"></line>
-                          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                        </svg>
-                        <span>No playlist assigned</span>
-                      </div>
-                    )}
-                    <button 
-                      className="change-playlist-btn"
-                      onClick={() => {
-                        setSelectedPlaylistId(selectedDevice.active_playlist_id?.toString() || '');
-                        setShowPlaylistModal(true);
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                      </svg>
-                      {selectedDevice.playlist_name ? 'Change Playlist' : 'Assign Playlist'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="detail-section">
                   <h3>Device Information</h3>
                   <div className="info-grid">
                     <div className="info-item">
@@ -466,44 +386,6 @@ function Devices() {
                 </button>
                 <button type="submit" className="submit-btn" disabled={loading}>
                   {loading ? 'Creating...' : 'Create Device'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Playlist Modal */}
-      {showPlaylistModal && selectedDevice && (
-        <div className="modal-overlay" onClick={() => setShowPlaylistModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Assign Playlist</h2>
-              <button className="close-btn" onClick={() => setShowPlaylistModal(false)}>×</button>
-            </div>
-            <form onSubmit={handleAssignPlaylist}>
-              <div className="form-group">
-                <label>Select Playlist</label>
-                <select
-                  value={selectedPlaylistId}
-                  onChange={(e) => setSelectedPlaylistId(e.target.value)}
-                  className="playlist-select"
-                >
-                  <option value="">No playlist (unassign)</option>
-                  {playlists.map(playlist => (
-                    <option key={playlist.id} value={playlist.id}>
-                      {playlist.name} {playlist.status === 'active' ? '(Active)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <small>Choose which playlist to display on this device</small>
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowPlaylistModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="submit-btn" disabled={loading}>
-                  {loading ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

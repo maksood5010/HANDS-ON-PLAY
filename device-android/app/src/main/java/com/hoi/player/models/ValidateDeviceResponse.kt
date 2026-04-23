@@ -9,6 +9,7 @@ data class ValidateDeviceResponse(
 data class DeviceInfo(
     val id: Int?,
     val name: String?,
+    val company_id: Int?,
     val group_id: Int?
 )
 

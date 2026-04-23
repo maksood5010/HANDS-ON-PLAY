@@ -1,6 +1,5 @@
 package com.hoi.player.network
 
-import com.hoi.player.utils.Constants
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -9,31 +8,35 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import kotlin.apply
-import kotlin.jvm.java
+import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
     @Provides
-    fun provideBaseUrl(): String {
-        return Constants.apiUrl
-    }
-
-    @Provides
+    @Singleton
     fun provideOkHttp(): OkHttpClient {
-        return OkHttpClient.Builder().addInterceptor(HttpLoggingInterceptor().apply {
+        return OkHttpClient.Builder()
+            .addInterceptor(DynamicBaseUrlInterceptor())
+            .addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BODY
-            }).build()
+            })
+            .build()
     }
 
     @Provides
-    fun provideRetrofit(okHttpClient: OkHttpClient, BASE_URL: String): Retrofit =
-        Retrofit.Builder().baseUrl(BASE_URL).addConverterFactory(GsonConverterFactory.create())
-            .client(okHttpClient).build()
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit =
+        Retrofit.Builder()
+            // Dummy baseUrl; actual host/port are rewritten by DynamicBaseUrlInterceptor
+            .baseUrl("http://127.0.0.1/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .client(okHttpClient)
+            .build()
 
     @Provides
+    @Singleton
     fun provideApiService(retrofit: Retrofit): ApiService = retrofit.create(ApiService::class.java)
 
 
