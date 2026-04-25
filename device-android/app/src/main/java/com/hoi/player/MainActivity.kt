@@ -8,9 +8,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.Fragment
+import com.google.firebase.messaging.FirebaseMessaging
 import com.hoi.player.databinding.ActivityMainBinding
 import com.hoi.player.fragment.HomeFragment
 import com.hoi.player.fragment.SetupDeviceFragment
+import com.hoi.player.utils.Constants
 import com.hoi.player.utils.KioskUtil
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
@@ -43,6 +45,30 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemBars()
+
+        // Ensure this device stays subscribed to its assigned group topic.
+        val savedTopic = PreferencesManager.get<String>(Constants.PREF_FCM_TOPIC)
+        if (!savedTopic.isNullOrBlank()) {
+            FirebaseMessaging.getInstance()
+                .subscribeToTopic(savedTopic)
+                .addOnCompleteListener { task ->
+                    Log.d(
+                        "FCM_CHECK",
+                        "subscribeToTopic($savedTopic) success=${task.isSuccessful}"
+                    )
+                }
+        }
+
+        // Also stay subscribed to the company-wide topic used for "All devices" actions.
+        val companyId = PreferencesManager.get<String>(Constants.PREF_COMPANY_ID)
+        if (!companyId.isNullOrBlank()) {
+            val companyTopic = "c_${companyId}_all"
+            FirebaseMessaging.getInstance()
+                .subscribeToTopic(companyTopic)
+                .addOnCompleteListener { task ->
+                    Log.d("FCM_CHECK", "subscribeToTopic($companyTopic) success=${task.isSuccessful}")
+                }
+        }
     }
 
     private fun hideSystemBars() {

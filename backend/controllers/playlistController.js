@@ -5,7 +5,8 @@ import {
   updatePlaylist,
   deletePlaylist,
   updatePlaylistStatus,
-  schedulePlaylist
+  schedulePlaylist,
+  clearPlaylistSchedule,
 } from "../models/playlistModel.js";
 import { getFirebaseMessaging } from "../utils/firebaseAdmin.js";
 import { canUserAccessGroup } from "../models/deviceGroupModel.js";
@@ -410,12 +411,34 @@ export const setPlaylistActiveHandler = async (req, res) => {
       return res.status(404).json({ error: "Playlist not found" });
     }
 
-    // Push a refresh event to all displays in this (company, group) via FCM Topic.
-    // Topic name is deterministic; devices subscribe client-side.
-    const topic = `c_${companyId}_g_${parseInt(device_group_id)}`;
+    // Push a refresh event via FCM Topic.
+    // - Normal groups: topic is (company, group)
+    // - "All devices" group: topic is company-wide, since devices are not actually assigned to that group_id.
+    let topic = `c_${companyId}_g_${parseInt(device_group_id)}`;
+    try {
+      const groupRes = await pool.query(
+        `SELECT name, user_id FROM device_groups WHERE id = $1 AND company_id = $2 LIMIT 1`,
+        [parseInt(device_group_id), companyId]
+      );
+      const group = groupRes.rows[0];
+      const isAllDevicesGroup =
+        !!group &&
+        group.user_id === null &&
+        typeof group.name === "string" &&
+        group.name.trim() === "All devices";
+      if (isAllDevicesGroup) {
+        topic = `c_${companyId}_all`;
+      }
+    } catch (e) {
+      console.warn("Failed to resolve group for FCM topic selection", e?.message ?? e);
+    }
     try {
       const messageId = await getFirebaseMessaging().send({
         topic,
+        android: {
+          priority: "high",
+          ttl: 60 * 1000, // 60s
+        },
         data: {
           type: "playlist_refresh",
           company_id: String(companyId),
@@ -486,6 +509,24 @@ export const schedulePlaylistHandler = async (req, res) => {
   } catch (error) {
     console.error("Error scheduling playlist:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Clear one-time schedule for playlist
+export const clearPlaylistScheduleHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.company_id;
+
+    const playlist = await clearPlaylistSchedule(parseInt(id), companyId);
+    if (!playlist) {
+      return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    return res.json({ success: true, playlist });
+  } catch (error) {
+    console.error("Error clearing playlist schedule:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 };
 

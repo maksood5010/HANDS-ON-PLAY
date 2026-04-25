@@ -35,6 +35,7 @@ class HomeFragment : Fragment() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val advanceRunnable = Runnable { advanceToNext() }
+    private val hideErrorRunnable = Runnable { hideError() }
 
     private lateinit var adapter: PlaylistPagerAdapter
 
@@ -66,6 +67,7 @@ class HomeFragment : Fragment() {
         deviceKey = PreferencesManager.get<String>("device_key")
         if (deviceKey == null) {
             Log.e("HomeFragment", "No device key found")
+            showError("Device not set up. Open settings and enter the device key.")
             updatePlaceholder(hasItems = false)
             return
         }
@@ -104,6 +106,7 @@ class HomeFragment : Fragment() {
             adapter.submitList(sortedItems)
             adapter.onPlaylistRefreshed()
             updatePlaceholder(hasItems = sortedItems.isNotEmpty())
+            hideError()
 
             if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
@@ -115,6 +118,7 @@ class HomeFragment : Fragment() {
         viewModel.playlistError.observe(viewLifecycleOwner) { error ->
             error?.let {
                 Log.e("HomeFragment", "Playlist error: $it")
+                showError("Can’t refresh content right now. Retrying in 30 seconds…")
                 if (adapter.itemCount > 0) {
                     binding.viewPager.setCurrentItem(0, false)
                     adapter.currentPosition = 0
@@ -125,6 +129,14 @@ class HomeFragment : Fragment() {
                 } else {
                     updatePlaceholder(hasItems = false)
                 }
+            }
+        }
+
+        viewModel.heartbeatError.observe(viewLifecycleOwner) { error ->
+            // Heartbeat is periodic; keep message friendly and non-spammy.
+            if (!error.isNullOrBlank()) {
+                Log.w("HomeFragment", "Heartbeat error: $error")
+                showError("Connection issue. Trying again…")
             }
         }
 
@@ -169,9 +181,22 @@ class HomeFragment : Fragment() {
 
     override fun onDestroyView() {
         handler.removeCallbacks(advanceRunnable)
+        handler.removeCallbacks(hideErrorRunnable)
         binding.viewPager.adapter = null
         viewModel.stopHeartbeat()
         super.onDestroyView()
+    }
+
+    private fun showError(message: String) {
+        handler.removeCallbacks(hideErrorRunnable)
+        binding.tvError.text = message
+        binding.tvError.visibility = View.VISIBLE
+        // Auto-hide after a bit so it doesn't burn-in on TVs.
+        handler.postDelayed(hideErrorRunnable, 12_000)
+    }
+
+    private fun hideError() {
+        binding.tvError.visibility = View.GONE
     }
 
     override fun onStop() {

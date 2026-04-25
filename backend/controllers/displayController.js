@@ -1,6 +1,7 @@
 import { getActivePlaylist } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
 import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
+import pool from "../config/db.js";
 
 const getEmptyPlaylistResponse = () => ({
   success: true,
@@ -45,8 +46,32 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       return res.json(getEmptyPlaylistResponse());
     }
 
-    // Get active playlist for device's group
-    const playlist = await getActivePlaylist(companyId, deviceGroupId);
+    // "All devices" playlist has higher priority than device's own group playlist.
+    // Note: "All devices" is represented as a special device_groups row, but devices are not assigned to it.
+    let playlist = null;
+    try {
+      const allRes = await pool.query(
+        `SELECT id
+         FROM device_groups
+         WHERE company_id = $1
+           AND user_id IS NULL
+           AND name = 'All devices'
+         LIMIT 1`,
+        [companyId]
+      );
+      const allGroupId = allRes.rows[0]?.id ?? null;
+      if (allGroupId) {
+        playlist = await getActivePlaylist(companyId, allGroupId);
+      }
+    } catch (e) {
+      // Don't break playback if the priority lookup fails; fall back to device group.
+      console.warn("All-devices priority lookup failed:", e?.message ?? e);
+    }
+
+    // Fall back to active playlist for device's group.
+    if (!playlist) {
+      playlist = await getActivePlaylist(companyId, deviceGroupId);
+    }
 
     if (!playlist) {
       // No playlist assigned -> allow client to show its own placeholder UI

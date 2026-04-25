@@ -14,6 +14,7 @@ import {
   setPlaylistActiveHandler,
   setPlaylistInactiveHandler,
   schedulePlaylistHandler,
+  clearPlaylistScheduleHandler,
   createDailyScheduleHandler,
   listSchedulesHandler,
   updateScheduleHandler,
@@ -36,6 +37,7 @@ router.delete("/playlists/:id", deletePlaylistHandler);
 router.post("/playlists/:id/activate", setPlaylistActiveHandler);
 router.post("/playlists/:id/deactivate", setPlaylistInactiveHandler);
 router.post("/playlists/:id/schedule", schedulePlaylistHandler);
+router.delete("/playlists/:id/schedule", clearPlaylistScheduleHandler);
 router.post("/playlists/:id/schedules/daily", createDailyScheduleHandler);
 
 // Recurring schedules

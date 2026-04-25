@@ -17,6 +17,14 @@ async function addPlaylistStatusFields() {
     `);
     console.log("Added scheduling fields to playlists table");
 
+    // Track whether we already sent a refresh push for schedule windows.
+    await pool.query(`
+      ALTER TABLE playlists
+      ADD COLUMN IF NOT EXISTS scheduled_start_push_sent_at TIMESTAMP DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS scheduled_end_push_sent_at TIMESTAMP DEFAULT NULL;
+    `);
+    console.log("Added scheduled push tracking fields to playlists table");
+
     // Create devices table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS devices (

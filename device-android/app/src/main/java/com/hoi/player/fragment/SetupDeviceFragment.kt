@@ -73,6 +73,14 @@ class SetupDeviceFragment : Fragment() {
                             .addOnCompleteListener { task ->
                                 Log.d("SetupDeviceFragment", "subscribeToTopic($topic) success=${task.isSuccessful}")
                             }
+
+                        // Company-wide topic used for "All devices" group actions.
+                        val companyTopic = "c_${companyId}_all"
+                        FirebaseMessaging.getInstance()
+                            .subscribeToTopic(companyTopic)
+                            .addOnCompleteListener { task ->
+                                Log.d("SetupDeviceFragment", "subscribeToTopic($companyTopic) success=${task.isSuccessful}")
+                            }
                     }
 
                     (requireActivity() as MainActivity).replaceFragment(HomeFragment(),false)

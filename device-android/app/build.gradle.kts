@@ -59,7 +59,8 @@ dependencies {
 
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
-
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-analytics")
     implementation(libs.firebase.messaging)
 
     implementation("com.squareup.retrofit2:retrofit:2.0.2")

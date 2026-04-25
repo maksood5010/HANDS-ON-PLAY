@@ -34,4 +34,17 @@
         android:layout_height="match_parent"
         android:orientation="vertical" />
 
+    <TextView
+        android:id="@+id/tvError"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="100dp"
+        android:background="@drawable/bg_error_banner"
+        android:paddingHorizontal="40dp"
+        android:paddingVertical="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        tools:text="Can’t reach server. Retrying in 30 seconds…" />
+
 </FrameLayout>

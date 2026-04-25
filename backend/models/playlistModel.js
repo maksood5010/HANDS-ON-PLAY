@@ -73,6 +73,23 @@ export const schedulePlaylist = async (playlistId, companyId, startTime, endTime
   return result.rows[0] || null;
 };
 
+export const clearPlaylistSchedule = async (playlistId, companyId) => {
+  const result = await pool.query(
+    `UPDATE playlists
+     SET
+       status = CASE WHEN status = 'scheduled' THEN 'inactive' ELSE status END,
+       schedule_start = NULL,
+       schedule_end = NULL,
+       scheduled_start_push_sent_at = NULL,
+       scheduled_end_push_sent_at = NULL,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND company_id = $2
+     RETURNING *`,
+    [playlistId, companyId]
+  );
+  return result.rows[0] || null;
+};
+
 export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
   if (!deviceGroupId) {
     // This system is device-group oriented; for safety return latest active/scheduled without resolving

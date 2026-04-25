@@ -37,6 +37,9 @@ class MainViewModel @Inject constructor(
     private val _playlistError = MutableLiveData<String?>()
     val playlistError: LiveData<String?> = _playlistError
 
+    private val _heartbeatError = MutableLiveData<String?>()
+    val heartbeatError: LiveData<String?> = _heartbeatError
+
     fun validateDeviceKey(deviceKey: String) {
         validateJob?.cancel()
         validateJob = viewModelScope.launch {
@@ -83,11 +86,15 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val response = apiService.sendHeartbeat(deviceKey)
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    _heartbeatError.value = null
+                } else {
                     Log.w("MainViewModel", "Heartbeat failed: ${response.code()}")
+                    _heartbeatError.value = "Heartbeat failed (${response.code()})"
                 }
             } catch (e: Exception) {
                 Log.w("MainViewModel", "Heartbeat error: ${e.message}")
+                _heartbeatError.value = e.message ?: "Heartbeat error"
             }
         }
     }

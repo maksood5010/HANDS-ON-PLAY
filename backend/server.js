@@ -12,6 +12,7 @@ import deviceGroupRoutes from "./routes/deviceGroupRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import companyRoutes from "./routes/companyRoutes.js";
+import { startScheduledPlaylistPushJob } from "./jobs/scheduledPlaylistPush.js";
 
 dotenv.config();
 
@@ -54,4 +55,12 @@ app.use((req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  try {
+    startScheduledPlaylistPushJob({
+      intervalMs: Number(process.env.SCHEDULE_PUSH_POLL_MS || 5000),
+      batchSize: Number(process.env.SCHEDULE_PUSH_BATCH_SIZE || 25),
+    });
+  } catch (e) {
+    console.warn("Failed to start scheduled playlist push job", e?.message ?? e);
+  }
 });

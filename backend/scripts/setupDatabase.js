@@ -354,6 +354,29 @@ async function createPlaylistSchedulesTable() {
   }
 }
 
+async function addSchedulePushTrackingFields() {
+  try {
+    // One-time scheduled playlists: track whether we already pushed at schedule_start/schedule_end.
+    await pool.query(`
+      ALTER TABLE playlists
+      ADD COLUMN IF NOT EXISTS scheduled_start_push_sent_at TIMESTAMP DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS scheduled_end_push_sent_at TIMESTAMP DEFAULT NULL;
+    `);
+    console.log("Added scheduled push tracking fields to playlists table");
+
+    // Daily repeating schedules: track whether we already pushed for today.
+    await pool.query(`
+      ALTER TABLE playlist_schedules
+      ADD COLUMN IF NOT EXISTS last_start_push_sent_for_date DATE DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS last_end_push_sent_for_date DATE DEFAULT NULL;
+    `);
+    console.log("Added scheduled push tracking fields to playlist_schedules table");
+  } catch (error) {
+    console.error("Error adding scheduled push tracking fields:", error);
+    throw error;
+  }
+}
+
 async function addUserRoleField() {
   try {
     // Legacy no-op: roles are now created directly on users table creation.
@@ -375,6 +398,7 @@ async function setupDatabase() {
     await addDeviceGroupToPlaylists();
     await addDeviceLastSeen();
     await createPlaylistSchedulesTable();
+    await addSchedulePushTrackingFields();
     await addUserRoleField();
     await bootstrapPlatform({ pool });
     console.log("Database setup completed successfully.");
