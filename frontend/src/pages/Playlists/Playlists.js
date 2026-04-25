@@ -1,5 +1,5 @@
 import './Playlists.css';
-import { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { playlistAPI, deviceGroupAPI, getFileUrl } from '../../services/api';
 
 const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
@@ -34,11 +34,6 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
       device_group_id: '',
     });
   }, [selectedPlaylist?.id]);
-
-  const dailySchedules = useMemo(
-    () => (playlistSchedules || []).filter((s) => s.type === 'daily'),
-    [playlistSchedules]
-  );
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -129,42 +124,6 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
                 <small>Leave empty for no end time</small>
               </div>
             </>
-          )}
-
-          {dailySchedules.length > 0 && (
-            <div className="form-group">
-              <label>Existing Daily Schedules</label>
-              <div className="schedule-list" style={{ maxHeight: 180, overflow: 'auto' }}>
-                {dailySchedules.map((s) => (
-                  <div
-                    key={s.id}
-                    className="schedule-item"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      alignItems: 'center',
-                      padding: '6px 0',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{s.device_group_name}</div>
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>
-                        {formatTime12h(s.daily_start_time)} - {formatTime12h(s.daily_end_time)} ({s.enabled ? 'enabled' : 'disabled'})
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button type="button" className="cancel-btn" onClick={() => onToggleSchedule(s)}>
-                        {s.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                      <button type="button" className="cancel-btn" onClick={() => onDeleteSchedule(s.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           )}
 
           <div className="modal-actions">
@@ -522,6 +481,24 @@ function Playlists() {
     }
   }, [selectedPlaylist?.id]);
 
+  const handleClearOneTimeSchedule = useCallback(async (playlistId) => {
+    if (!window.confirm('Clear the one-time schedule for this playlist?')) return;
+    try {
+      setLoading(true);
+      setError('');
+      const resp = await playlistAPI.clearOneTimeSchedule(playlistId);
+      if (resp?.playlist) {
+        setSelectedPlaylist((p) => (p?.id === playlistId ? { ...p, ...resp.playlist } : p));
+      }
+      fetchPlaylists();
+      fetchPlaylistDetails(playlistId);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to clear schedule');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const handleToggleSchedule = useCallback(async (schedule) => {
     try {
       setLoading(true);
@@ -630,12 +607,66 @@ function Playlists() {
                         Group: {selectedPlaylist.device_group_name}
                       </span>
                     )}
-                    {selectedPlaylist.schedule_start && (
-                      <span className="schedule-info">
-                        Scheduled: {new Date(selectedPlaylist.schedule_start).toLocaleString()}
-                        {selectedPlaylist.schedule_end && ` - ${new Date(selectedPlaylist.schedule_end).toLocaleString()}`}
-                      </span>
-                    )}
+
+                    {/* Schedules */}
+                    {(() => {
+                      const hasOneTime = Boolean(selectedPlaylist.schedule_start);
+                      const recurring = (playlistSchedules || []).filter((s) => s.type === 'daily');
+                      const hasAny = hasOneTime || recurring.length > 0;
+
+                      if (!hasAny) {
+                        return <span className="schedule-empty">No schedules configured</span>;
+                      }
+
+                      return (
+                        <>
+                          {hasOneTime && (
+                            <span className="schedule-info-row">
+                              <span className="schedule-info">
+                                One-time: {new Date(selectedPlaylist.schedule_start).toLocaleString()}
+                                {selectedPlaylist.schedule_end &&
+                                  ` - ${new Date(selectedPlaylist.schedule_end).toLocaleString()}`}
+                              </span>
+                              <button
+                                type="button"
+                                className="schedule-delete-btn"
+                                onClick={() => handleClearOneTimeSchedule(selectedPlaylist.id)}
+                                title="Clear one-time schedule"
+                                aria-label="Clear one-time schedule"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <polyline points="3 6 5 6 21 6"></polyline>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </span>
+                          )}
+
+                          {recurring.map((s) => (
+                            <span key={s.id} className="schedule-info-row">
+                              <span className="schedule-info">
+                                Daily: {formatTime12h(s.daily_start_time)} - {formatTime12h(s.daily_end_time)}
+                                {s.timezone ? ` (${s.timezone})` : ''}
+                                {s.device_group_name ? ` • ${s.device_group_name}` : ''}
+                                {s.enabled === false ? ' • disabled' : ''}
+                              </span>
+                              <button
+                                type="button"
+                                className="schedule-delete-btn"
+                                onClick={() => handleDeleteSchedule(s.id)}
+                                title="Delete schedule"
+                                aria-label="Delete schedule"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <polyline points="3 6 5 6 21 6"></polyline>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </span>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="header-actions">

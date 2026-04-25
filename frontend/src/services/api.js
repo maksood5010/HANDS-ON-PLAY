@@ -245,6 +245,11 @@ export const playlistAPI = {
     return response.data;
   },
 
+  clearOneTimeSchedule: async (playlistId) => {
+    const response = await api.delete(`/playlists/${playlistId}/schedule`);
+    return response.data;
+  },
+
   createDailySchedule: async (playlistId, deviceGroupId, dailyStartTime, dailyEndTime, enabled = true) => {
     const response = await api.post(`/playlists/${playlistId}/schedules/daily`, {
       device_group_id: deviceGroupId,
