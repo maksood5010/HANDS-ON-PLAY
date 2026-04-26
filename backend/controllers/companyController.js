@@ -8,6 +8,9 @@ import {
 import { ensureAllDevicesGroup } from "../models/deviceGroupModel.js";
 import pool from "../config/db.js";
 import bcrypt from "bcryptjs";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const normalizeSlug = (slug) => {
   if (slug === undefined) return undefined;
@@ -33,6 +36,80 @@ const parsePurchaseDate = (raw) => {
   if (Number.isNaN(d.getTime())) return null;
   // Use ISO date (YYYY-MM-DD) for DATE column
   return d.toISOString().slice(0, 10);
+};
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const moveCompanyLogoIfNeeded = async ({ file, companyId }) => {
+  if (!file?.path || !companyId) return null;
+
+  // If upload middleware stored directly under companies/<id>, keep its relative path.
+  const normalized = file.path.replaceAll("\\", "/");
+  const uploadsIdx = normalized.lastIndexOf("/uploads/");
+  if (uploadsIdx >= 0) {
+    const rel = normalized.slice(uploadsIdx + "/uploads/".length);
+    if (rel.startsWith(`companies/${companyId}/`)) return rel;
+  }
+
+  // Otherwise move from tmp to companies/<id>
+  const uploadsDir = path.join(__dirname, "../uploads");
+  const companyDir = path.join(uploadsDir, `companies/${companyId}`);
+  await fs.promises.mkdir(companyDir, { recursive: true });
+
+  const ext = path.extname(file.originalname || file.filename || "").toLowerCase();
+  const destFilename = file.filename?.startsWith("logo-")
+    ? file.filename
+    : `logo-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext || ""}`;
+  const destAbs = path.join(companyDir, destFilename);
+
+  await fs.promises.rename(file.path, destAbs);
+  return `companies/${companyId}/${destFilename}`;
+};
+
+const extractAdminCreds = (body) => {
+  const rawAdmin = body?.admin;
+
+  // Common FormData patterns: admin[username], admin[password]
+  const bracketUsername = body?.["admin[username]"];
+  const bracketPassword = body?.["admin[password]"];
+  if (typeof bracketUsername === "string" || typeof bracketPassword === "string") {
+    return {
+      username: typeof bracketUsername === "string" ? bracketUsername.trim() : "",
+      password: typeof bracketPassword === "string" ? bracketPassword : "",
+    };
+  }
+
+  // Alternative flat fields for multipart
+  if (typeof body?.admin_username === "string" || typeof body?.admin_password === "string") {
+    return {
+      username: typeof body.admin_username === "string" ? body.admin_username.trim() : "",
+      password: typeof body.admin_password === "string" ? body.admin_password : "",
+    };
+  }
+
+  // JSON body: admin object
+  if (rawAdmin && typeof rawAdmin === "object") {
+    return {
+      username: typeof rawAdmin.username === "string" ? rawAdmin.username.trim() : "",
+      password: typeof rawAdmin.password === "string" ? rawAdmin.password : "",
+    };
+  }
+
+  // Multipart may send admin as JSON string
+  if (typeof rawAdmin === "string" && rawAdmin.trim()) {
+    try {
+      const parsed = JSON.parse(rawAdmin);
+      return {
+        username: typeof parsed?.username === "string" ? parsed.username.trim() : "",
+        password: typeof parsed?.password === "string" ? parsed.password : "",
+      };
+    } catch {
+      return { username: "", password: "" };
+    }
+  }
+
+  return { username: "", password: "" };
 };
 
 const generateTempPassword = () => {
@@ -163,9 +240,7 @@ export const createCompanyHandler = async (req, res) => {
       ? parseInt(rawDeviceLimit, 10)
       : NaN;
 
-    const admin = req.body?.admin;
-    const adminUsername = typeof admin?.username === "string" ? admin.username.trim() : "";
-    const adminPassword = typeof admin?.password === "string" ? admin.password : "";
+    const { username: adminUsername, password: adminPassword } = extractAdminCreds(req.body);
 
     if (!name) return res.status(400).json({ error: "Company name is required" });
     if (req.body?.slug !== undefined && slug === null) {
@@ -178,9 +253,6 @@ export const createCompanyHandler = async (req, res) => {
       return res.status(400).json({ error: "device_limit must be an integer >= 0" });
     }
 
-    if (!admin || typeof admin !== "object") {
-      return res.status(400).json({ error: "admin is required" });
-    }
     if (!adminUsername) return res.status(400).json({ error: "Admin username is required" });
     if (adminPassword.length < 6) {
       return res.status(400).json({ error: "Admin password must be at least 6 characters" });
@@ -210,14 +282,16 @@ export const createCompanyHandler = async (req, res) => {
             contact_email,
             contact_phone,
             device_limit,
-            additional_info
+            additional_info,
+            logo_path
          )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING
             id, name, slug,
             purchase_date, payment_cycle,
             contact_name, contact_email, contact_phone,
             device_limit, additional_info,
+            logo_path,
             created_at`,
         [
           name,
@@ -229,10 +303,32 @@ export const createCompanyHandler = async (req, res) => {
           contact_phone,
           device_limit,
           additional_info,
+          null,
         ]
       );
 
-      const company = companyRes.rows[0];
+      let company = companyRes.rows[0];
+
+      // If a logo file was uploaded, move it and persist logo_path.
+      if (req.file) {
+        const logo_path = await moveCompanyLogoIfNeeded({ file: req.file, companyId: company.id });
+        if (logo_path) {
+          const logoRes = await client.query(
+            `UPDATE companies
+             SET logo_path = $1
+             WHERE id = $2
+             RETURNING
+               id, name, slug,
+               purchase_date, payment_cycle,
+               contact_name, contact_email, contact_phone,
+               device_limit, additional_info,
+               logo_path,
+               created_at`,
+            [logo_path, company.id]
+          );
+          company = logoRes.rows[0] || company;
+        }
+      }
 
       const hashed = await bcrypt.hash(adminPassword, 10);
       const adminUserRes = await client.query(
@@ -326,6 +422,11 @@ export const updateCompanyHandler = async (req, res) => {
         return res.status(400).json({ error: "device_limit must be an integer >= 0" });
       }
       fields.device_limit = device_limit;
+    }
+
+    if (req.file) {
+      const logo_path = await moveCompanyLogoIfNeeded({ file: req.file, companyId });
+      if (logo_path) fields.logo_path = logo_path;
     }
 
     const updated = await updateCompany(companyId, fields);

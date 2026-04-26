@@ -1,6 +1,7 @@
 import './Login.css';
 import { useState } from "react";
 import { authAPI } from "../../services/api";
+import PasswordInput from "../common/PasswordInput";
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
@@ -48,8 +49,7 @@ function Login({ onLoginSuccess }) {
           </div>
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
-              type="password"
+            <PasswordInput
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

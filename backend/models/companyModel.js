@@ -10,6 +10,7 @@ export const createCompany = async ({
   contact_phone = null,
   device_limit = 0,
   additional_info = null,
+  logo_path = null,
 }) => {
   const result = await pool.query(
     `INSERT INTO companies (
@@ -21,14 +22,16 @@ export const createCompany = async ({
         contact_email,
         contact_phone,
         device_limit,
-        additional_info
+        additional_info,
+        logo_path
      )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING
         id, name, slug,
         purchase_date, payment_cycle,
         contact_name, contact_email, contact_phone,
         device_limit, additional_info,
+        logo_path,
         created_at`,
     [
       name,
@@ -40,6 +43,7 @@ export const createCompany = async ({
       contact_phone,
       device_limit,
       additional_info,
+      logo_path,
     ]
   );
   return result.rows[0];
@@ -52,6 +56,7 @@ export const listCompanies = async () => {
         purchase_date, payment_cycle,
         contact_name, contact_email, contact_phone,
         device_limit, additional_info,
+        logo_path,
         created_at
      FROM companies
      ORDER BY id ASC`
@@ -66,6 +71,7 @@ export const getCompanyById = async (companyId) => {
         purchase_date, payment_cycle,
         contact_name, contact_email, contact_phone,
         device_limit, additional_info,
+        logo_path,
         created_at
      FROM companies
      WHERE id = $1`,
@@ -85,6 +91,7 @@ export const updateCompany = async (companyId, fields) => {
     "contact_phone",
     "device_limit",
     "additional_info",
+    "logo_path",
   ];
   const keys = Object.keys(fields || {}).filter((k) => allowed.includes(k));
   if (keys.length === 0) return null;
@@ -107,6 +114,7 @@ export const updateCompany = async (companyId, fields) => {
         purchase_date, payment_cycle,
         contact_name, contact_email, contact_phone,
         device_limit, additional_info,
+        logo_path,
         created_at`,
     values
   );

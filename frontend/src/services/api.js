@@ -10,6 +10,12 @@ const api = axios.create({
   },
 });
 
+export const getUploadUrl = (relativePath) => {
+  if (!relativePath || typeof relativePath !== "string") return null;
+  const trimmed = relativePath.replace(/^\/+/, "");
+  return `${UPLOAD_BASE_URL}/uploads/${trimmed}`;
+};
+
 // Get user ID from localStorage
 const getUserId = () => {
   const user = localStorage.getItem("user");
@@ -28,6 +34,10 @@ api.interceptors.request.use((config) => {
     } else if (config.data instanceof FormData) {
       // For FormData, append user_id
       config.data.append("user_id", userId);
+      // Let axios set the correct multipart boundary
+      if (config.headers && config.headers["Content-Type"]) {
+        delete config.headers["Content-Type"];
+      }
     } else {
       config.data = { ...config.data, user_id: userId };
     }
@@ -77,24 +87,59 @@ export const companyAPI = {
     device_limit,
     additional_info,
     admin,
+    logo,
   }) => {
-    const payload = {
+    const hasLogo = logo instanceof File;
+    const payload = hasLogo ? new FormData() : {
       name,
       purchase_date,
       payment_cycle,
       device_limit,
       admin,
     };
-    if (slug !== undefined) payload.slug = slug;
-    if (contact_name !== undefined) payload.contact_name = contact_name;
-    if (contact_email !== undefined) payload.contact_email = contact_email;
-    if (contact_phone !== undefined) payload.contact_phone = contact_phone;
-    if (additional_info !== undefined) payload.additional_info = additional_info;
+
+    if (hasLogo) {
+      payload.append("name", name);
+      payload.append("purchase_date", purchase_date);
+      payload.append("payment_cycle", payment_cycle);
+      payload.append("device_limit", String(device_limit ?? 0));
+      if (slug !== undefined) payload.append("slug", slug);
+      if (contact_name !== undefined) payload.append("contact_name", contact_name);
+      if (contact_email !== undefined) payload.append("contact_email", contact_email);
+      if (contact_phone !== undefined) payload.append("contact_phone", contact_phone);
+      if (additional_info !== undefined) payload.append("additional_info", additional_info);
+      // Send admin as JSON string (backend also supports bracket fields)
+      payload.append("admin", JSON.stringify(admin));
+      payload.append("logo", logo);
+    } else {
+      if (slug !== undefined) payload.slug = slug;
+      if (contact_name !== undefined) payload.contact_name = contact_name;
+      if (contact_email !== undefined) payload.contact_email = contact_email;
+      if (contact_phone !== undefined) payload.contact_phone = contact_phone;
+      if (additional_info !== undefined) payload.additional_info = additional_info;
+    }
+
     const response = await api.post("/companies", payload);
     return response.data;
   },
   updateCompany: async (id, fields) => {
-    const response = await api.put(`/companies/${id}`, fields);
+    const logo = fields?.logo;
+    const hasLogo = logo instanceof File;
+
+    const payload = hasLogo ? new FormData() : { ...(fields || {}) };
+
+    if (hasLogo) {
+      // Copy all scalar fields into FormData
+      Object.entries(fields || {}).forEach(([key, value]) => {
+        if (key === "logo") return;
+        if (value === undefined) return;
+        if (value === null) return payload.append(key, "");
+        payload.append(key, String(value));
+      });
+      payload.append("logo", logo);
+    }
+
+    const response = await api.put(`/companies/${id}`, payload);
     return response.data;
   },
   deleteCompany: async (id) => {
@@ -237,11 +282,13 @@ export const playlistAPI = {
   },
 
   schedulePlaylist: async (playlistId, startTime, endTime, deviceGroupId) => {
-    const response = await api.post(`/playlists/${playlistId}/schedule`, {
-      start_time: startTime,
+    const payload = {
       end_time: endTime,
-      device_group_id: deviceGroupId
-    });
+      device_group_id: deviceGroupId,
+    };
+    if (startTime) payload.start_time = startTime;
+
+    const response = await api.post(`/playlists/${playlistId}/schedule`, payload);
     return response.data;
   },
 

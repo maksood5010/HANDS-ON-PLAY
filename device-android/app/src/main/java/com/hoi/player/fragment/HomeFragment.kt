@@ -22,6 +22,7 @@ import com.hoi.player.databinding.FragmentHomeBinding
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
+import com.bumptech.glide.Glide
 
 class HomeFragment : Fragment() {
 
@@ -148,6 +149,18 @@ class HomeFragment : Fragment() {
         binding.placeholderImage.visibility = if (hasItems) View.GONE else View.VISIBLE
         binding.viewPager.visibility = if (hasItems) View.VISIBLE else View.GONE
         binding.btnSettings.visibility = if (hasItems) View.GONE else View.VISIBLE
+
+        if (!hasItems) {
+            val url = PreferencesManager.get<String>(Constants.PREF_PLACEHOLDER_LOGO_URL)
+            if (!url.isNullOrBlank()) {
+                Glide.with(this)
+                    .load(url)
+                    .error(com.hoi.player.R.drawable.placeholder)
+                    .into(binding.placeholderImage)
+            } else {
+                binding.placeholderImage.setImageResource(com.hoi.player.R.drawable.placeholder)
+            }
+        }
     }
 
     private fun startAdvanceForPosition(position: Int) {

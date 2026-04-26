@@ -485,10 +485,6 @@ export const schedulePlaylistHandler = async (req, res) => {
     const { start_time, end_time, device_group_id } = req.body;
     const companyId = req.user.company_id;
 
-    if (!start_time) {
-      return res.status(400).json({ error: "Start time is required" });
-    }
-
     if (!device_group_id) {
       return res.status(400).json({ error: "Device group is required" });
     }
@@ -499,7 +495,14 @@ export const schedulePlaylistHandler = async (req, res) => {
       return res.status(404).json({ error: "Device group not found" });
     }
 
-    const playlist = await schedulePlaylist(parseInt(id), companyId, start_time, end_time || null, parseInt(device_group_id));
+    const startTimeToUse = start_time || new Date().toISOString();
+    const playlist = await schedulePlaylist(
+      parseInt(id),
+      companyId,
+      startTimeToUse,
+      end_time || null,
+      parseInt(device_group_id)
+    );
     
     if (!playlist) {
       return res.status(404).json({ error: "Playlist not found" });

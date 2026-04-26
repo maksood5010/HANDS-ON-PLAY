@@ -40,7 +40,7 @@ export const createDeviceHandler = async (req, res) => {
       );
       const currentCount = countRes.rows[0]?.count ?? 0;
       if (currentCount >= deviceLimit) {
-        return res.status(409).json({ error: "Device limit reached for this company" });
+        return res.status(409).json({ error: "Oops…. Your device limit is reached contact us on +971508739464" });
       }
     }
 

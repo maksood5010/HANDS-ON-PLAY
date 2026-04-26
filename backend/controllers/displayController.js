@@ -1,7 +1,34 @@
-import { getActivePlaylist } from "../models/playlistModel.js";
+import { getActivePlaylistWithMeta } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
 import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
 import pool from "../config/db.js";
+
+function toTs(v) {
+  const t = new Date(v ?? 0).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function chooseWinner(a, b) {
+  // a/b are: { playlist, class } where class is 'scheduled' | 'active' | null
+  if (a?.playlist && !b?.playlist) return a;
+  if (b?.playlist && !a?.playlist) return b;
+  if (!a?.playlist && !b?.playlist) return { playlist: null, class: null, source: null };
+
+  const aIsScheduled = a.class === "scheduled";
+  const bIsScheduled = b.class === "scheduled";
+  if (aIsScheduled !== bIsScheduled) return aIsScheduled ? a : b;
+
+  const aUpdated = toTs(a.playlist.updated_at);
+  const bUpdated = toTs(b.playlist.updated_at);
+  if (aUpdated !== bUpdated) return aUpdated > bUpdated ? a : b;
+
+  const aCreated = toTs(a.playlist.created_at);
+  const bCreated = toTs(b.playlist.created_at);
+  if (aCreated !== bCreated) return aCreated > bCreated ? a : b;
+
+  // Stable fallback
+  return a;
+}
 
 const getEmptyPlaylistResponse = () => ({
   success: true,
@@ -46,9 +73,12 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       return res.json(getEmptyPlaylistResponse());
     }
 
-    // "All devices" playlist has higher priority than device's own group playlist.
-    // Note: "All devices" is represented as a special device_groups row, but devices are not assigned to it.
+    // Pick best candidate across:
+    // - Device's own group
+    // - Special "All devices" group
     let playlist = null;
+    let groupCandidate = { playlist: null, class: null, source: null };
+    let allCandidate = { playlist: null, class: null, source: null };
     try {
       const allRes = await pool.query(
         `SELECT id
@@ -60,18 +90,22 @@ export const getActivePlaylistForDisplay = async (req, res) => {
         [companyId]
       );
       const allGroupId = allRes.rows[0]?.id ?? null;
-      if (allGroupId) {
-        playlist = await getActivePlaylist(companyId, allGroupId);
-      }
+      const [pGroup, pAll] = await Promise.all([
+        getActivePlaylistWithMeta(companyId, deviceGroupId),
+        allGroupId
+          ? getActivePlaylistWithMeta(companyId, allGroupId)
+          : { playlist: null, class: null, source: null },
+      ]);
+      groupCandidate = pGroup;
+      allCandidate = pAll;
     } catch (e) {
-      // Don't break playback if the priority lookup fails; fall back to device group.
-      console.warn("All-devices priority lookup failed:", e?.message ?? e);
+      // Don't break playback if the all-devices lookup fails; still try device group.
+      console.warn("All-devices lookup failed:", e?.message ?? e);
+      groupCandidate = await getActivePlaylistWithMeta(companyId, deviceGroupId);
     }
 
-    // Fall back to active playlist for device's group.
-    if (!playlist) {
-      playlist = await getActivePlaylist(companyId, deviceGroupId);
-    }
+    const winner = chooseWinner(allCandidate, groupCandidate);
+    playlist = winner.playlist;
 
     if (!playlist) {
       // No playlist assigned -> allow client to show its own placeholder UI
@@ -140,6 +174,26 @@ export const validateDeviceKey = async (req, res) => {
       });
     }
 
+    let placeholderLogoUrl = null;
+    try {
+      if (device.company_id) {
+        const companyRes = await pool.query(
+          `SELECT id, logo_path
+           FROM companies
+           WHERE id = $1
+           LIMIT 1`,
+          [device.company_id]
+        );
+        const logoPath = companyRes.rows[0]?.logo_path || null;
+        if (logoPath) {
+          placeholderLogoUrl = `${req.protocol}://${req.get("host")}/uploads/${logoPath}`;
+        }
+      }
+    } catch (e) {
+      // Keep validate-key resilient; placeholder is optional.
+      console.warn("Failed to load company logo for validate-key:", e?.message ?? e);
+    }
+
     return res.json({
       success: true,
       valid: true,
@@ -148,6 +202,10 @@ export const validateDeviceKey = async (req, res) => {
         name: device.name,
         company_id: device.company_id,
         group_id: device.group_id,
+      },
+      company: {
+        id: device.company_id ?? null,
+        placeholderLogoUrl,
       },
     });
   } catch (error) {

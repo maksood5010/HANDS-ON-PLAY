@@ -1,6 +1,7 @@
 import "./Users.css";
 import { useEffect, useMemo, useState } from "react";
 import { userAPI } from "../../services/api";
+import PasswordInput from "../../components/common/PasswordInput";
 
 const roles = ["company_admin", "company_user"];
 
@@ -22,11 +23,13 @@ function Users() {
 
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [newRole, setNewRole] = useState("Customer");
 
   const [editId, setEditId] = useState(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [editPasswordConfirm, setEditPasswordConfirm] = useState("");
   const [editRole, setEditRole] = useState("Customer");
 
   const me = useMemo(() => {
@@ -67,6 +70,7 @@ function Users() {
     setEditId(u.id);
     setEditUsername(u.username);
     setEditPassword("");
+    setEditPasswordConfirm("");
     setEditRole(u.role);
     setShowEditModal(true);
   };
@@ -75,6 +79,7 @@ function Users() {
     setEditId(null);
     setEditUsername("");
     setEditPassword("");
+    setEditPasswordConfirm("");
     setEditRole("Customer");
     setShowEditModal(false);
   };
@@ -86,6 +91,7 @@ function Users() {
       await userAPI.createUser(newUsername, newPassword, newRole);
       setNewUsername("");
       setNewPassword("");
+      setNewPasswordConfirm("");
       setNewRole("Customer");
       setShowCreateModal(false);
       await loadUsers();
@@ -359,14 +365,27 @@ function Users() {
               </div>
               <div className="form-group">
                 <label>Password *</label>
-                <input
-                  type="password"
+                <PasswordInput
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="At least 6 characters"
                   required
+                  autoComplete="new-password"
                 />
                 <small>This password will be hashed and stored securely</small>
+              </div>
+              <div className="form-group">
+                <label>Retype password *</label>
+                <PasswordInput
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                  placeholder="Retype password"
+                  required
+                  autoComplete="new-password"
+                />
+                {newPasswordConfirm && newPasswordConfirm !== newPassword && (
+                  <small style={{ color: "#dc2626" }}>Passwords do not match</small>
+                )}
               </div>
               <div className="form-group">
                 <label>Role *</label>
@@ -386,7 +405,11 @@ function Users() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="submit-btn">
+                <button
+                  type="submit"
+                  className="submit-btn"
+                  disabled={!newPassword || !newPasswordConfirm || newPasswordConfirm !== newPassword}
+                >
                   Create User
                 </button>
               </div>
@@ -431,13 +454,30 @@ function Users() {
               </div>
               <div className="form-group">
                 <label>New Password (optional)</label>
-                <input
-                  type="password"
+                <PasswordInput
                   value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
+                  onChange={(e) => {
+                    setEditPassword(e.target.value);
+                    if (!e.target.value) setEditPasswordConfirm("");
+                  }}
                   placeholder="Leave blank to keep current password"
+                  autoComplete="new-password"
                 />
               </div>
+              {Boolean(editPassword) && (
+                <div className="form-group">
+                  <label>Retype new password</label>
+                  <PasswordInput
+                    value={editPasswordConfirm}
+                    onChange={(e) => setEditPasswordConfirm(e.target.value)}
+                    placeholder="Retype new password"
+                    autoComplete="new-password"
+                  />
+                  {editPasswordConfirm && editPasswordConfirm !== editPassword && (
+                    <small style={{ color: "#dc2626" }}>Passwords do not match</small>
+                  )}
+                </div>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"
@@ -446,7 +486,11 @@ function Users() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="submit-btn">
+                <button
+                  type="submit"
+                  className="submit-btn"
+                  disabled={Boolean(editPassword) && (!editPasswordConfirm || editPasswordConfirm !== editPassword)}
+                >
                   Save Changes
                 </button>
               </div>

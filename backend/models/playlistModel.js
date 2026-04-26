@@ -90,9 +90,12 @@ export const clearPlaylistSchedule = async (playlistId, companyId) => {
   return result.rows[0] || null;
 };
 
-export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
+export const getActivePlaylistWithMeta = async (
+  companyId,
+  deviceGroupId = null
+) => {
   if (!deviceGroupId) {
-    // This system is device-group oriented; for safety return latest active/scheduled without resolving
+    // This system is device-group oriented; for safety return latest active/scheduled without resolving.
     const result = await pool.query(
       `SELECT *
        FROM playlists
@@ -101,7 +104,11 @@ export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
        LIMIT 1`,
       [companyId]
     );
-    return result.rows[0] || null;
+    const playlist = result.rows[0] || null;
+    const clazz = playlist?.status === "active" ? "active" : "scheduled";
+    return playlist
+      ? { playlist, class: clazz, source: "company_fallback" }
+      : { playlist: null, class: null, source: null };
   }
 
   // 1) Daily recurring schedules (Asia/Dubai)
@@ -118,7 +125,10 @@ export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
        WHERE id = $1 AND company_id = $2`,
       [activeDaily.playlist_id, companyId]
     );
-    return playlistResult.rows[0] || null;
+    const playlist = playlistResult.rows[0] || null;
+    return playlist
+      ? { playlist, class: "scheduled", source: "daily" }
+      : { playlist: null, class: null, source: null };
   }
 
   // 2) One-time scheduled playlists in window
@@ -136,7 +146,7 @@ export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
     [companyId, deviceGroupId]
   );
   if (scheduledResult.rows[0]) {
-    return scheduledResult.rows[0];
+    return { playlist: scheduledResult.rows[0], class: "scheduled", source: "one_time" };
   }
 
   // 3) Fallback to active playlist
@@ -150,7 +160,15 @@ export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
      LIMIT 1`,
     [companyId, deviceGroupId]
   );
-  return activeResult.rows[0] || null;
+  const playlist = activeResult.rows[0] || null;
+  return playlist
+    ? { playlist, class: "active", source: "active" }
+    : { playlist: null, class: null, source: null };
+};
+
+export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
+  const { playlist } = await getActivePlaylistWithMeta(companyId, deviceGroupId);
+  return playlist;
 };
 
 export const deletePlaylist = async (playlistId, companyId) => {

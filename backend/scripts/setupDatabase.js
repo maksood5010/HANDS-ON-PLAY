@@ -19,10 +19,17 @@ async function createCompaniesTable() {
         contact_phone TEXT,
         device_limit INTEGER NOT NULL DEFAULT 0,
         additional_info TEXT,
+        logo_path VARCHAR(500),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log("Companies table created successfully!");
+
+    // Add logo_path column (idempotent) in case table existed before
+    await pool.query(`
+      ALTER TABLE companies
+      ADD COLUMN IF NOT EXISTS logo_path VARCHAR(500);
+    `);
 
     // Enforce allowed payment cycles (idempotent)
     const chkExists = await pool.query(`

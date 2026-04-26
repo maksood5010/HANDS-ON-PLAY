@@ -1,6 +1,7 @@
 import './Playlists.css';
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { playlistAPI, deviceGroupAPI, getFileUrl } from '../../services/api';
+import Sheet from '../../components/common/Sheet/Sheet';
 
 const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
   selectedPlaylist,
@@ -15,7 +16,7 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
   onDeleteSchedule,
 }) {
   const [form, setForm] = useState({
-    mode: 'one_time',
+    mode: 'daily',
     start_time: '',
     end_time: '',
     daily_start_time: '',
@@ -26,7 +27,7 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
   useEffect(() => {
     // Reset when opening for a playlist
     setForm({
-      mode: 'one_time',
+      mode: 'daily',
       start_time: '',
       end_time: '',
       daily_start_time: '',
@@ -56,6 +57,7 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
               required
             >
               <option value="one_time">One-time (start/end)</option>
+              <option value="forever">Forever (optional start)</option>
               <option value="daily">Daily repeating (Asia/Dubai)</option>
             </select>
           </div>
@@ -101,6 +103,19 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
                 <small>Timezone: Asia/Dubai (UAE)</small>
               </div>
             </>
+          ) : form.mode === 'forever' ? (
+            <>
+              <div className="form-group">
+                <label>Start Time (Optional)</label>
+                <input
+                  type="datetime-local"
+                  value={form.start_time}
+                  onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))}
+                  onClick={openNativePicker}
+                />
+                <small>Leave empty to start immediately</small>
+              </div>
+            </>
           ) : (
             <>
               <div className="form-group">
@@ -114,14 +129,15 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
                 />
               </div>
               <div className="form-group">
-                <label>End Time (Optional)</label>
+                <label>End Time *</label>
                 <input
                   type="datetime-local"
                   value={form.end_time}
                   onChange={(e) => setForm((p) => ({ ...p, end_time: e.target.value }))}
                   onClick={openNativePicker}
+                  required
                 />
-                <small>Leave empty for no end time</small>
+                <small>Required for one-time schedules</small>
               </div>
             </>
           )}
@@ -141,6 +157,8 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
 });
 
 function Playlists() {
+  const MAX_UPLOAD_FILES = 25;
+  const statusClass = (status) => String(status || 'inactive').trim().toLowerCase();
   const formatTime12h = (timeValue) => {
     if (!timeValue) return '';
 
@@ -180,6 +198,7 @@ function Playlists() {
   const [newPlaylist, setNewPlaylist] = useState({ name: '', description: '' });
   // Multi-file upload: array of { file, duration }
   const [uploadFiles, setUploadFiles] = useState([]);
+  const uploadPreviewUrlsRef = useRef(new Set());
   const [error, setError] = useState('');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showActivateModal, setShowActivateModal] = useState(false);
@@ -187,6 +206,30 @@ function Playlists() {
   const [selectedDeviceGroupId, setSelectedDeviceGroupId] = useState('');
   const [playlistSchedules, setPlaylistSchedules] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const revokeUploadPreviews = useCallback(() => {
+    const urls = uploadPreviewUrlsRef.current;
+    urls.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    });
+    urls.clear();
+  }, []);
+
+  const clearUploadFiles = useCallback(() => {
+    revokeUploadPreviews();
+    setUploadFiles([]);
+  }, [revokeUploadPreviews]);
+
+  useEffect(() => {
+    // Cleanup in case user navigates away with previews allocated
+    return () => {
+      revokeUploadPreviews();
+    };
+  }, [revokeUploadPreviews]);
 
   useEffect(() => {
     fetchPlaylists();
@@ -238,10 +281,21 @@ function Playlists() {
     try {
       setLoading(true);
       setError('');
-      await playlistAPI.createPlaylist(newPlaylist.name, newPlaylist.description);
+      const createdResp = await playlistAPI.createPlaylist(
+        newPlaylist.name,
+        newPlaylist.description
+      );
+      const createdId = createdResp?.playlist?.id;
       setNewPlaylist({ name: '', description: '' });
       setShowCreateModal(false);
-      fetchPlaylists();
+      setUploadFiles([]);
+      await fetchPlaylists();
+
+      // Auto-select the newly created playlist and open upload modal
+      if (createdId) {
+        await fetchPlaylistDetails(createdId);
+        setShowUploadModal(true);
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create playlist');
     } finally {
@@ -294,7 +348,7 @@ function Playlists() {
         entry.file.type.startsWith('image/') ? entry.duration : null
       );
       await playlistAPI.uploadFiles(selectedPlaylist.id, files, durations);
-      setUploadFiles([]);
+      clearUploadFiles();
       setShowUploadModal(false);
       fetchPlaylistDetails(selectedPlaylist.id);
     } catch (err) {
@@ -308,12 +362,28 @@ function Playlists() {
     if (!filesList || !filesList.length) return;
     setError('');
 
-    const newEntries = Array.from(filesList).map((file) => ({
+    const remaining = MAX_UPLOAD_FILES - uploadFiles.length;
+    if (remaining <= 0) {
+      setError(`Maximum ${MAX_UPLOAD_FILES} files allowed per upload.`);
+      return;
+    }
+
+    const incoming = Array.from(filesList);
+    const filesToAdd = incoming.slice(0, remaining);
+    if (incoming.length > remaining) {
+      setError(`Only ${remaining} more file${remaining === 1 ? '' : 's'} can be added (max ${MAX_UPLOAD_FILES}).`);
+    }
+
+    const newEntries = filesToAdd.map((file) => ({
       file,
-      // Default duration: 5s for images, null for videos
-      duration: file.type.startsWith('image/') ? 5 : null,
+      // Default duration: 10s for images, null for videos
+      duration: file.type.startsWith('image/') ? 10 : null,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
     }));
 
+    newEntries.forEach((e) => {
+      if (e.previewUrl) uploadPreviewUrlsRef.current.add(e.previewUrl);
+    });
     setUploadFiles((prev) => [...prev, ...newEntries]);
   };
 
@@ -443,15 +513,26 @@ function Playlists() {
           form.daily_end_time,
           true
         );
+      } else if (form.mode === 'forever') {
+        await playlistAPI.schedulePlaylist(
+          selectedPlaylist.id,
+          form.start_time || null,
+          null,
+          parseInt(form.device_group_id)
+        );
       } else {
         if (!form.start_time) {
           setError('Start time is required');
           return;
         }
+        if (!form.end_time) {
+          setError('End time is required');
+          return;
+        }
         await playlistAPI.schedulePlaylist(
           selectedPlaylist.id,
           form.start_time,
-          form.end_time || null,
+          form.end_time,
           parseInt(form.device_group_id)
         );
       }
@@ -599,8 +680,8 @@ function Playlists() {
                   <h2>{selectedPlaylist.name}</h2>
                   <p>{selectedPlaylist.description || 'No description'}</p>
                   <div className="playlist-status-badge">
-                    <span className={`status-indicator ${selectedPlaylist.status || 'inactive'}`}>
-                      {selectedPlaylist.status || 'inactive'}
+                    <span className={`status-indicator ${statusClass(selectedPlaylist.status)}`}>
+                      {statusClass(selectedPlaylist.status)}
                     </span>
                     {selectedPlaylist.device_group_name && (
                       <span className="device-group-info">
@@ -671,10 +752,15 @@ function Playlists() {
                 </div>
                 <div className="header-actions">
                   <div className="playlist-controls">
+                    {(() => {
+                      const isEmpty = !selectedPlaylist?.items || selectedPlaylist.items.length === 0;
+                      return (
+                        <>
                     <button
                       className={`control-btn ${selectedPlaylist.status === 'active' ? 'active' : ''}`}
                       onClick={() => setShowActivateModal(true)}
-                      disabled={selectedPlaylist.status === 'active'}
+                      disabled={selectedPlaylist.status === 'active' || isEmpty}
+                      title={isEmpty ? 'Add at least one item to activate' : undefined}
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -684,6 +770,8 @@ function Playlists() {
                     <button
                       className="control-btn schedule-btn"
                       onClick={() => setShowScheduleModal(true)}
+                      disabled={isEmpty}
+                      title={isEmpty ? 'Add at least one item to schedule' : undefined}
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -693,6 +781,9 @@ function Playlists() {
                       </svg>
                       Schedule
                     </button>
+                        </>
+                      );
+                    })()}
                     {selectedPlaylist.status !== 'inactive' && (
                       <button
                         className="control-btn deactivate-btn"
@@ -859,100 +950,119 @@ function Playlists() {
       )}
 
       {/* Upload File Modal */}
-      {showUploadModal && selectedPlaylist && (
-        <div className="modal-overlay" onClick={() => setShowUploadModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Upload File to Playlist</h2>
-              <button className="close-btn" onClick={() => setShowUploadModal(false)}>×</button>
-            </div>
-            <form onSubmit={handleUploadFile}>
-              <div className="form-group">
-                <label>Select File *</label>
-                <div
-                  className={`file-upload-area ${isDragOver ? 'drag-over' : ''}`}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    id="file-upload"
-                    accept="image/*,video/*"
-                    multiple
-                    onChange={(e) => handleFileSelected(e.target.files)}
-                    className="file-input"
-                  />
-                  <label htmlFor="file-upload" className="file-upload-label">
-                    {uploadFiles.length > 0
-                      ? `${uploadFiles.length} file${uploadFiles.length > 1 ? 's' : ''} selected`
-                      : 'Choose files or drag and drop'}
-                  </label>
-                </div>
-                {uploadFiles.length > 0 && (
-                  <div className="file-info multi-file-list">
-                    <ul>
-                      {uploadFiles.map((entry, index) => (
-                        <li key={index}>
-                          <span className="file-name">{entry.file.name}</span>
-                          <span className="file-size">
-                            {(entry.file.size / 1024 / 1024).toFixed(2)} MB
-                          </span>
-                          {entry.file.type.startsWith('image/') && (
-                            <span className="file-duration">
-                              Duration (s):{' '}
-                              <input
-                                type="number"
-                                min="1"
-                                value={entry.duration ?? 5}
-                                onChange={(e) => {
-                                  const value = parseInt(e.target.value, 10);
-                                  setUploadFiles((prev) =>
-                                    prev.map((item, i) =>
-                                      i === index
-                                        ? {
-                                            ...item,
-                                            duration:
-                                              Number.isNaN(value) || value < 1 ? 1 : value,
-                                          }
-                                        : item
-                                    )
-                                  );
-                                }}
-                              />
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-              <div className="modal-actions">
-
-              <button
-                  type="button"
-                  className="cancel-btn"
-                  onClick={() => setUploadFiles([])}
-                  disabled={uploading || uploadFiles.length === 0}
-                >
-                  Clear Files
-                </button>
-                <button
-                  type="button"
-                  className="cancel-btn"
-                  onClick={() => setShowUploadModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="submit-btn" disabled={uploading || uploadFiles.length === 0}>
-                  {uploading ? 'Uploading...' : 'Upload Files'}
-                </button>
-              </div>
-            </form>
+      <Sheet
+        open={Boolean(showUploadModal && selectedPlaylist)}
+        title="Upload File to Playlist"
+        onClose={() => {
+          clearUploadFiles();
+          setShowUploadModal(false);
+        }}
+        maxWidth="560px"
+        footer={
+          <div className="modal-actions" style={{ marginTop: 0 }}>
+            <button
+              type="button"
+              className="cancel-btn"
+              onClick={clearUploadFiles}
+              disabled={uploading || uploadFiles.length === 0}
+            >
+              Clear Files
+            </button>
+            <button
+              type="button"
+              className="cancel-btn"
+              onClick={() => {
+                clearUploadFiles();
+                setShowUploadModal(false);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="upload-files-form"
+              className="submit-btn"
+              disabled={uploading || uploadFiles.length === 0}
+            >
+              {uploading ? 'Uploading...' : 'Upload Files'}
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {selectedPlaylist ? (
+          <form id="upload-files-form" onSubmit={handleUploadFile}>
+            <div className="form-group">
+              <label>Select File *</label>
+              <div
+                className={`file-upload-area ${isDragOver ? 'drag-over' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <input
+                  type="file"
+                  id="file-upload"
+                  accept="image/*,video/*"
+                  multiple
+                  onChange={(e) => handleFileSelected(e.target.files)}
+                  className="file-input"
+                />
+                <label htmlFor="file-upload" className="file-upload-label">
+                  {uploadFiles.length > 0
+                    ? `${uploadFiles.length}/${MAX_UPLOAD_FILES} selected`
+                    : `Choose files or drag and drop (max ${MAX_UPLOAD_FILES})`}
+                </label>
+              </div>
+              <small>Maximum {MAX_UPLOAD_FILES} files per upload.</small>
+
+              {uploadFiles.length > 0 && (
+                <div className="file-info multi-file-list">
+                  <ul>
+                    {uploadFiles.map((entry, index) => (
+                      <li key={index}>
+                        <span className="file-name">{entry.file.name}</span>
+                        <span className="file-size">
+                          {(entry.file.size / 1024 / 1024).toFixed(2)} MB
+                        </span>
+                        {entry.file.type.startsWith('image/') && (
+                          <span className="file-duration">
+                            {entry.previewUrl && (
+                              <img
+                                className="upload-image-thumb"
+                                src={entry.previewUrl}
+                                alt={entry.file.name}
+                              />
+                            )}
+                            Duration (s):{' '}
+                            <input
+                              type="number"
+                              min="1"
+                              value={entry.duration ?? 10}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                setUploadFiles((prev) =>
+                                  prev.map((item, i) =>
+                                    i === index
+                                      ? {
+                                          ...item,
+                                          duration: Number.isNaN(value) || value < 1 ? 1 : value,
+                                        }
+                                      : item
+                                  )
+                                );
+                              }}
+                            />
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </form>
+        ) : null}
+      </Sheet>
 
       {/* Set Active Modal */}
       {showActivateModal && selectedPlaylist && (

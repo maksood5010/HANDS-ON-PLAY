@@ -63,6 +63,11 @@ class SetupDeviceFragment : Fragment() {
                         PreferencesManager.put(device.group_id, Constants.PREF_GROUP_ID)
                     }
 
+                    val placeholderLogoUrl = result?.company?.placeholderLogoUrl
+                    if (!placeholderLogoUrl.isNullOrBlank()) {
+                        PreferencesManager.put(placeholderLogoUrl, Constants.PREF_PLACEHOLDER_LOGO_URL)
+                    }
+
                     val companyId = device?.company_id
                     val groupId = device?.group_id
                     if (companyId != null && groupId != null) {

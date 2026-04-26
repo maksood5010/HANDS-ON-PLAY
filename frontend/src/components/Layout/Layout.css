@@ -4,9 +4,29 @@
   background: #f9fafb;
 }
 
+.layout.theme-default {
+  --accent: #9B59B6;
+  --accent-soft: rgba(155, 89, 182, 0.10);
+  --accent-border: rgba(155, 89, 182, 0.20);
+  --accent-grad-a: #9B59B6;
+  --accent-grad-b: #8E44AD;
+}
+
+.layout.theme-platform-admin {
+  --accent: #B45309;
+  --accent-soft: rgba(245, 158, 11, 0.14);
+  --accent-border: rgba(245, 158, 11, 0.28);
+  --accent-grad-a: #F59E0B;
+  --accent-grad-b: #DC2626;
+}
+
 .layout-content {
   flex: 1;
   margin-left: 260px;
   min-height: 100vh;
+}
+
+.layout.theme-platform-admin .layout-content {
+  box-shadow: inset 0 4px 0 0 var(--accent-grad-a);
 }
 

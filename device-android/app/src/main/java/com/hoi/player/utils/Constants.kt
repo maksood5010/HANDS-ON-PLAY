@@ -6,6 +6,7 @@ object Constants {
     const val PREF_COMPANY_ID: String = "company_id"
     const val PREF_GROUP_ID: String = "group_id"
     const val PREF_FCM_TOPIC: String = "fcm_topic"
+    const val PREF_PLACEHOLDER_LOGO_URL: String = "placeholder_logo_url"
 
     const val ACTION_PLAYLIST_REFRESH: String = "com.hoi.player.action.PLAYLIST_REFRESH"
 

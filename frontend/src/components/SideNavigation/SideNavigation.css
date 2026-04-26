@@ -59,13 +59,13 @@
 }
 
 .nav-item.active {
-  background: linear-gradient(135deg, rgba(155, 89, 182, 0.1) 0%, rgba(155, 89, 182, 0.05) 100%);
-  color: #9B59B6;
-  border: 1px solid rgba(155, 89, 182, 0.2);
+  background: linear-gradient(135deg, var(--accent-soft) 0%, rgba(0, 0, 0, 0) 100%);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .nav-item.active svg {
-  color: #9B59B6;
+  color: var(--accent);
 }
 
 .nav-footer {
@@ -88,7 +88,7 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #9B59B6 0%, #8E44AD 100%);
+  background: linear-gradient(135deg, var(--accent-grad-a) 0%, var(--accent-grad-b) 100%);
   display: flex;
   align-items: center;
   justify-content: center;

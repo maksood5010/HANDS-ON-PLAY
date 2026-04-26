@@ -1,7 +1,8 @@
 import "../DeviceGroups/DeviceGroups.css";
 import "./Companies.css";
 import { useEffect, useState } from "react";
-import { companyAPI } from "../../services/api";
+import { companyAPI, getUploadUrl } from "../../services/api";
+import PasswordInput from "../../components/common/PasswordInput";
 
 function Companies() {
   const openNativePicker = (e) => {
@@ -35,6 +36,8 @@ function Companies() {
   const [newAdditionalInfo, setNewAdditionalInfo] = useState("");
   const [newAdminUsername, setNewAdminUsername] = useState("");
   const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [newAdminPasswordConfirm, setNewAdminPasswordConfirm] = useState("");
+  const [newLogo, setNewLogo] = useState(null);
 
   const [companyAdminUser, setCompanyAdminUser] = useState(null);
   const [lastResetPassword, setLastResetPassword] = useState("");
@@ -49,6 +52,7 @@ function Companies() {
   const [editContactPhone, setEditContactPhone] = useState("");
   const [editDeviceLimit, setEditDeviceLimit] = useState(0);
   const [editAdditionalInfo, setEditAdditionalInfo] = useState("");
+  const [editLogo, setEditLogo] = useState(null);
 
   const loadCompanies = async () => {
     setError("");
@@ -68,6 +72,12 @@ function Companies() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const companyLogoUrl = (c) => {
+    const logoPath = c?.logo_path;
+    if (!logoPath) return null;
+    return getUploadUrl(logoPath);
   };
 
   const loadSelectedCompanyAdmin = async (companyId) => {
@@ -95,6 +105,7 @@ function Companies() {
     setEditContactPhone(c.contact_phone || "");
     setEditDeviceLimit(typeof c.device_limit === "number" ? c.device_limit : 0);
     setEditAdditionalInfo(c.additional_info || "");
+    setEditLogo(null);
     setShowEditModal(true);
   };
 
@@ -109,6 +120,7 @@ function Companies() {
     setEditContactPhone("");
     setEditDeviceLimit(0);
     setEditAdditionalInfo("");
+    setEditLogo(null);
     setShowEditModal(false);
   };
 
@@ -128,6 +140,7 @@ function Companies() {
         device_limit: Number(newDeviceLimit) || 0,
         additional_info: newAdditionalInfo.trim() || undefined,
         admin: { username: newAdminUsername.trim(), password: newAdminPassword },
+        logo: newLogo,
       });
       setNewName("");
       setNewSlug("");
@@ -140,6 +153,8 @@ function Companies() {
       setNewAdditionalInfo("");
       setNewAdminUsername("");
       setNewAdminPassword("");
+      setNewAdminPasswordConfirm("");
+      setNewLogo(null);
       setShowCreateModal(false);
       await loadCompanies();
     } catch (err) {
@@ -162,6 +177,7 @@ function Companies() {
       };
       const slug = editSlug.trim();
       fields.slug = slug ? slug : null;
+      if (editLogo) fields.logo = editLogo;
       await companyAPI.updateCompany(editId, fields);
       cancelEdit();
       await loadCompanies();
@@ -239,13 +255,25 @@ function Companies() {
                   }}
                 >
                   <div className="group-card-header">
-                    <div className="group-icon-wrapper">
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M3 21h18"></path>
-                        <path d="M5 21V7l8-4 8 4v14"></path>
-                        <path d="M9 21v-8h6v8"></path>
-                      </svg>
-                    </div>
+                    {companyLogoUrl(c) ? (
+                      <img
+                        className="company-logo company-logo--list"
+                        src={companyLogoUrl(c)}
+                        alt=""
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="group-icon-wrapper">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M3 21h18"></path>
+                          <path d="M5 21V7l8-4 8 4v14"></path>
+                          <path d="M9 21v-8h6v8"></path>
+                        </svg>
+                      </div>
+                    )}
                     <button
                       className="delete-btn-small"
                       onClick={(e) => {
@@ -281,13 +309,25 @@ function Companies() {
             <>
               <div className="detail-header">
                 <div className="detail-title-row">
-                  <div className="detail-icon">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 21h18"></path>
-                      <path d="M5 21V7l8-4 8 4v14"></path>
-                      <path d="M9 21v-8h6v8"></path>
-                    </svg>
-                  </div>
+                  {companyLogoUrl(selectedCompany) ? (
+                    <img
+                      className="company-logo company-logo--detail"
+                      src={companyLogoUrl(selectedCompany)}
+                      alt=""
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div className="detail-icon">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 21h18"></path>
+                        <path d="M5 21V7l8-4 8 4v14"></path>
+                        <path d="M9 21v-8h6v8"></path>
+                      </svg>
+                    </div>
+                  )}
                   <div>
                     <h2>{selectedCompany.name}</h2>
                     <span className="global-indicator">
@@ -530,6 +570,15 @@ function Companies() {
                   onChange={(e) => setNewAdditionalInfo(e.target.value)}
                 />
               </div>
+              <div className="form-group companies-full">
+                <label>Company logo (optional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setNewLogo(e.target.files?.[0] || null)}
+                />
+                <small>Used as the placeholder image on devices when no playlist is active</small>
+              </div>
               <div className="form-group">
                 <label>Admin username *</label>
                 <input
@@ -543,8 +592,7 @@ function Companies() {
               </div>
               <div className="form-group companies-full">
                 <label>Admin password *</label>
-                <input
-                  type="password"
+                <PasswordInput
                   name="company_admin_password"
                   value={newAdminPassword}
                   onChange={(e) => setNewAdminPassword(e.target.value)}
@@ -553,6 +601,20 @@ function Companies() {
                   autoComplete="new-password"
                 />
                 <small>At least 6 characters</small>
+              </div>
+              <div className="form-group companies-full">
+                <label>Retype admin password *</label>
+                <PasswordInput
+                  name="company_admin_password_confirm"
+                  value={newAdminPasswordConfirm}
+                  onChange={(e) => setNewAdminPasswordConfirm(e.target.value)}
+                  minLength={6}
+                  required
+                  autoComplete="new-password"
+                />
+                {newAdminPasswordConfirm && newAdminPasswordConfirm !== newAdminPassword && (
+                  <small style={{ color: "#dc2626" }}>Passwords do not match</small>
+                )}
               </div>
               </div>
               <div className="modal-actions">
@@ -563,7 +625,15 @@ function Companies() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="submit-btn">
+                <button
+                  type="submit"
+                  className="submit-btn"
+                  disabled={
+                    !newAdminPassword ||
+                    !newAdminPasswordConfirm ||
+                    newAdminPasswordConfirm !== newAdminPassword
+                  }
+                >
                   Create Company
                 </button>
               </div>
@@ -664,6 +734,15 @@ function Companies() {
                   value={editAdditionalInfo}
                   onChange={(e) => setEditAdditionalInfo(e.target.value)}
                 />
+              </div>
+              <div className="form-group companies-full">
+                <label>Company logo (optional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setEditLogo(e.target.files?.[0] || null)}
+                />
+                <small>Select a new logo to replace the current one</small>
               </div>
               </div>
               <div className="modal-actions">
