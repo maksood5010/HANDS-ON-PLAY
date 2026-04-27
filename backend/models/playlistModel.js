@@ -126,9 +126,10 @@ export const getActivePlaylistWithMeta = async (
       [activeDaily.playlist_id, companyId]
     );
     const playlist = playlistResult.rows[0] || null;
-    return playlist
-      ? { playlist, class: "scheduled", source: "daily" }
-      : { playlist: null, class: null, source: null };
+    if (playlist?.status !== "active" && playlist?.status !== "scheduled") {
+    } else {
+      return { playlist, class: "scheduled", source: "daily" };
+    }
   }
 
   // 2) One-time scheduled playlists in window
