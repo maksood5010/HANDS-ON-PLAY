@@ -88,6 +88,14 @@ class PlaylistPagerAdapter(
         controller?.pause()
     }
 
+    fun restartPlayback() {
+        val ctrl = controller ?: return
+        // If a single-item playlist ends, the page won't change; restart locally.
+        ctrl.seekTo(0)
+        ctrl.playWhenReady = true
+        ctrl.play()
+    }
+
     /**
      * Call this when a brand-new playlist is loaded (e.g., after hitting the end and re-fetching).
      * It forces the next visible video item to re-prepare even if the URL matches the previous one.

@@ -185,9 +185,22 @@ class HomeFragment : Fragment() {
 
         if (count == 0) return
 
+        // With a single page, the ViewPager never changes pages, so we must restart playback locally.
+        Log.d("TAG", "advanceToNext: count$count")
+        if (count == 1) {
+            adapter.restartPlayback()
+            // Still refresh in the background so server-side playlist changes apply.
+            deviceKey?.let { viewModel.fetchPlaylist(it) }
+            return
+        }
+
         if (current < count - 1) {
             binding.viewPager.setCurrentItem(current + 1, true)
         } else {
+            // Loop back immediately for smooth playback, then refresh the playlist.
+            binding.viewPager.setCurrentItem(0, false)
+            adapter.currentPosition = 0
+            startAdvanceForPosition(0)
             deviceKey?.let { viewModel.fetchPlaylist(it) }
         }
     }

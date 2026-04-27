@@ -65,6 +65,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun fetchPlaylist(deviceKey: String) {
+        Log.d("TAG", "fetchPlaylist: ")
         viewModelScope.launch {
             try {
                 val response = apiService.getActivePlaylist(deviceKey)

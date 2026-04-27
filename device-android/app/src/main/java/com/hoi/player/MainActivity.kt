@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(binding.root)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemBars()
 //        KioskUtil.setDeviceOwner(this)
@@ -46,6 +46,16 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hideSystemBars()
 
+        FirebaseMessaging.getInstance().token
+            .addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    Log.w("FCM_CHECK", "getToken failed", task.exception)
+                    return@addOnCompleteListener
+                }
+                val token = task.result
+                Log.d("FCM_CHECK", "token=${token}")
+            }
+
         // Ensure this device stays subscribed to its assigned group topic.
         val savedTopic = PreferencesManager.get<String>(Constants.PREF_FCM_TOPIC)
         if (!savedTopic.isNullOrBlank()) {
@@ -57,6 +67,8 @@ class MainActivity : AppCompatActivity() {
                         "subscribeToTopic($savedTopic) success=${task.isSuccessful}"
                     )
                 }
+        } else {
+            Log.w("FCM_CHECK", "No saved group topic in prefs (${Constants.PREF_FCM_TOPIC})")
         }
 
         // Also stay subscribed to the company-wide topic used for "All devices" actions.
@@ -68,6 +80,8 @@ class MainActivity : AppCompatActivity() {
                 .addOnCompleteListener { task ->
                     Log.d("FCM_CHECK", "subscribeToTopic($companyTopic) success=${task.isSuccessful}")
                 }
+        } else {
+            Log.w("FCM_CHECK", "No saved company id in prefs (${Constants.PREF_COMPANY_ID})")
         }
     }
 
@@ -84,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         if (back) {
             transaction.addToBackStack(fragment.javaClass.simpleName)
         }
-        transaction.add(binding.fragmentContainerView.id, fragment)
+        transaction.replace(binding.fragmentContainerView.id, fragment)
         transaction.commit()
     }
 
