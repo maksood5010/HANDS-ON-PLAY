@@ -1,7 +1,20 @@
 import axios from "axios";
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5041/api";
-const UPLOAD_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5041";
+
+// Upload URL base should NOT include `/api`.
+// In many deployments REACT_APP_API_URL is set to ".../api", which would incorrectly
+// produce URLs like "http://host/api/uploads/...".
+const deriveUploadBaseUrl = () => {
+  const explicit = process.env.REACT_APP_UPLOAD_URL;
+  if (explicit && String(explicit).trim()) return String(explicit).replace(/\/+$/, "");
+
+  const apiUrl = String(process.env.REACT_APP_API_URL || "http://localhost:5041/api").trim();
+  // Strip trailing `/api` (or `/api/`) if present.
+  return apiUrl.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
+};
+
+const UPLOAD_BASE_URL = deriveUploadBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
