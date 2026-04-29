@@ -1,0 +1,48 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm install
+          REACT_APP_API_URL=http://${{ secrets.DROPLET_IP }}/api npm run build
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DROPLET_SSH_KEY }}
+
+      - name: Add Droplet to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.DROPLET_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy Frontend and Backend via Rsync
+        run: |
+          # Deploy the frontend build
+          rsync -avz --delete frontend/build/ root@${{ secrets.DROPLET_IP }}:/var/www/frontend/
+          
+          # Deploy the backend source code (preserving remote .env and node_modules)
+          rsync -avz --delete --exclude 'node_modules' --exclude '.env' backend/ root@${{ secrets.DROPLET_IP }}:/var/www/backend/
+
+      - name: Restart Backend Server
+        run: |
+          ssh root@${{ secrets.DROPLET_IP }} "cd /var/www/backend && npm install && pm2 restart hands-on-play-api || pm2 start server.js --name 'hands-on-play-api'"
