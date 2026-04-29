@@ -11,7 +11,7 @@ async function createCompaniesTable() {
       CREATE TABLE IF NOT EXISTS companies (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
-        slug TEXT UNIQUE,
+        slug TEXT UNIQUE NOT NULL,
         purchase_date DATE NOT NULL,
         payment_cycle VARCHAR(16) NOT NULL,
         contact_name TEXT,
@@ -29,6 +29,19 @@ async function createCompaniesTable() {
     await pool.query(`
       ALTER TABLE companies
       ADD COLUMN IF NOT EXISTS logo_path VARCHAR(500);
+    `);
+
+    // Enforce slug as mandatory for existing DBs too.
+    // If legacy rows exist with NULL slug, fail fast with a clear message.
+    const nullSlugs = await pool.query(`SELECT COUNT(*)::int AS count FROM companies WHERE slug IS NULL`);
+    if ((nullSlugs.rows[0]?.count ?? 0) > 0) {
+      throw new Error(
+        "Cannot enforce mandatory companies.slug: existing rows have NULL slug. Populate slugs, then re-run setup."
+      );
+    }
+    await pool.query(`
+      ALTER TABLE companies
+      ALTER COLUMN slug SET NOT NULL;
     `);
 
     // Enforce allowed payment cycles (idempotent)

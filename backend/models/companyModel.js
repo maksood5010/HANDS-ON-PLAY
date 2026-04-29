@@ -2,7 +2,7 @@ import pool from "../config/db.js";
 
 export const createCompany = async ({
   name,
-  slug = null,
+  slug,
   purchase_date,
   payment_cycle,
   contact_name = null,
@@ -83,7 +83,6 @@ export const getCompanyById = async (companyId) => {
 export const updateCompany = async (companyId, fields) => {
   const allowed = [
     "name",
-    "slug",
     "purchase_date",
     "payment_cycle",
     "contact_name",

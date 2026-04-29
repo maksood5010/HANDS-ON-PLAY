@@ -195,6 +195,7 @@ function Playlists() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [newPlaylist, setNewPlaylist] = useState({ name: '', description: '' });
   // Multi-file upload: array of { file, duration }
   const [uploadFiles, setUploadFiles] = useState([]);
@@ -304,6 +305,11 @@ function Playlists() {
   };
 
   const handleDeletePlaylist = async (id) => {
+    const target = playlists.find((p) => p.id === id);
+    if (String(target?.status || '').toLowerCase() === 'active') {
+      setError('Cannot delete an active playlist. Deactivate it first.');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete this playlist?')) {
       return;
     }
@@ -342,12 +348,17 @@ function Playlists() {
 
     try {
       setUploading(true);
+      setUploadProgress(0);
       setError('');
       const files = uploadFiles.map((entry) => entry.file);
       const durations = uploadFiles.map((entry) =>
         entry.file.type.startsWith('image/') ? entry.duration : null
       );
-      await playlistAPI.uploadFiles(selectedPlaylist.id, files, durations);
+      await playlistAPI.uploadFiles(selectedPlaylist.id, files, durations, {
+        onProgress: (percent) => {
+          setUploadProgress((prev) => (percent > prev ? percent : prev));
+        },
+      });
       clearUploadFiles();
       setShowUploadModal(false);
       fetchPlaylistDetails(selectedPlaylist.id);
@@ -355,6 +366,7 @@ function Playlists() {
       setError(err.response?.data?.error || 'Failed to upload files');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -634,6 +646,9 @@ function Playlists() {
           ) : (
             <div className="playlist-cards">
               {playlists.map((playlist) => (
+                (() => {
+                  const isActive = String(playlist.status || '').trim().toLowerCase() === 'active';
+                  return (
                 <div
                   key={playlist.id}
                   className={`playlist-card ${selectedPlaylist?.id === playlist.id ? 'active' : ''}`}
@@ -645,8 +660,14 @@ function Playlists() {
                       className="delete-btn-small"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isActive) {
+                          setError('Cannot delete an active playlist. Deactivate it first.');
+                          return;
+                        }
                         handleDeletePlaylist(playlist.id);
                       }}
+                      disabled={isActive}
+                      title={isActive ? 'Deactivate this playlist to delete it' : 'Delete playlist'}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -667,6 +688,8 @@ function Playlists() {
                     )}
                   </div>
                 </div>
+                  );
+                })()
               ))}
             </div>
           )}
@@ -975,6 +998,7 @@ function Playlists() {
                 clearUploadFiles();
                 setShowUploadModal(false);
               }}
+              disabled={uploading}
             >
               Cancel
             </button>
@@ -984,13 +1008,35 @@ function Playlists() {
               className="submit-btn"
               disabled={uploading || uploadFiles.length === 0}
             >
-              {uploading ? 'Uploading...' : 'Upload Files'}
+              {uploading ? `Uploading ${Math.max(0, Math.min(100, uploadProgress || 0))}%` : 'Upload Files'}
             </button>
           </div>
         }
       >
         {selectedPlaylist ? (
           <form id="upload-files-form" onSubmit={handleUploadFile}>
+            {uploading && (
+              <div className="playlist-upload-progress playlist-upload-progress--top" aria-live="polite">
+                <div className="playlist-upload-progress__row">
+                  <span className="playlist-upload-progress__spinner" aria-hidden="true" />
+                  <span className="playlist-upload-progress__label">
+                    Uploading {Math.max(0, Math.min(100, uploadProgress || 0))}%
+                  </span>
+                </div>
+                <div
+                  className="playlist-upload-progress__bar"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.max(0, Math.min(100, uploadProgress || 0))}
+                >
+                  <div
+                    className="playlist-upload-progress__barFill"
+                    style={{ width: `${Math.max(0, Math.min(100, uploadProgress || 0))}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <div className="form-group">
               <label>Select File *</label>
               <div

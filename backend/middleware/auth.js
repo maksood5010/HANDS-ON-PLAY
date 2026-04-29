@@ -28,6 +28,7 @@ export const authenticate = async (req, res, next) => {
     req.user = {
       id: user.id,
       company_id: user.company_id,
+      company_slug: user.company_slug ?? null,
       role: user.role,
     };
 

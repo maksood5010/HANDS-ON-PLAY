@@ -44,7 +44,6 @@ function Companies() {
 
   const [editId, setEditId] = useState(null);
   const [editName, setEditName] = useState("");
-  const [editSlug, setEditSlug] = useState("");
   const [editPurchaseDate, setEditPurchaseDate] = useState("");
   const [editPaymentCycle, setEditPaymentCycle] = useState("monthly");
   const [editContactName, setEditContactName] = useState("");
@@ -97,7 +96,6 @@ function Companies() {
   const startEdit = (c) => {
     setEditId(c.id);
     setEditName(c.name || "");
-    setEditSlug(c.slug || "");
     setEditPurchaseDate(c.purchase_date ? String(c.purchase_date).slice(0, 10) : "");
     setEditPaymentCycle(c.payment_cycle || "monthly");
     setEditContactName(c.contact_name || "");
@@ -112,7 +110,6 @@ function Companies() {
   const cancelEdit = () => {
     setEditId(null);
     setEditName("");
-    setEditSlug("");
     setEditPurchaseDate("");
     setEditPaymentCycle("monthly");
     setEditContactName("");
@@ -128,7 +125,11 @@ function Companies() {
     e.preventDefault();
     setError("");
     try {
-      const slug = newSlug.trim() ? newSlug.trim() : undefined;
+      const slug = newSlug.trim();
+      if (!slug) {
+        setError("Company slug is required");
+        return;
+      }
       await companyAPI.createCompany({
         name: newName.trim(),
         slug,
@@ -175,8 +176,6 @@ function Companies() {
         device_limit: Number(editDeviceLimit) || 0,
         additional_info: editAdditionalInfo.trim() || null,
       };
-      const slug = editSlug.trim();
-      fields.slug = slug ? slug : null;
       if (editLogo) fields.logo = editLogo;
       await companyAPI.updateCompany(editId, fields);
       cancelEdit();
@@ -400,7 +399,7 @@ function Companies() {
 
                 <div className="detail-section">
                   <h3>Actions</h3>
-                  <p className="section-description">Edit company name/slug.</p>
+                  <p className="section-description">Edit company details (slug cannot be changed).</p>
                   <button
                     className="edit-group-btn"
                     type="button"
@@ -490,13 +489,14 @@ function Companies() {
                 <small>Displayed company name</small>
               </div>
               <div className="form-group">
-                <label>Slug (optional)</label>
+                <label>Slug *</label>
                 <input
                   type="text"
                   name="company_slug"
                   value={newSlug}
                   onChange={(e) => setNewSlug(e.target.value)}
                   placeholder="e.g., acme-inc"
+                  required
                 />
                 <small>Lowercase letters/numbers with dashes</small>
               </div>
@@ -664,16 +664,6 @@ function Companies() {
                   onChange={(e) => setEditName(e.target.value)}
                   required
                 />
-              </div>
-              <div className="form-group">
-                <label>Slug</label>
-                <input
-                  type="text"
-                  value={editSlug}
-                  onChange={(e) => setEditSlug(e.target.value)}
-                  placeholder="Leave blank to remove slug"
-                />
-                <small>Blank will set slug to null</small>
               </div>
               <div className="form-group">
                 <label>Purchase date *</label>

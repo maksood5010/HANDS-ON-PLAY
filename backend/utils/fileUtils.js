@@ -1,5 +1,6 @@
-// Utility function to get file URL
+import { getPublicFileUrl } from "./publicFileUrl.js";
+
 export const getFileUrl = (req, filePath) => {
-  return `${req.protocol}://${req.get('host')}/uploads/${filePath}`;
+  return getPublicFileUrl({ req, key: filePath });
 };
 

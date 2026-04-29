@@ -12,33 +12,44 @@ const ensureDir = (dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 };
 
-// Ensure base folders exist
-ensureDir(uploadsDir);
-ensureDir(path.join(uploadsDir, "companies"));
-ensureDir(path.join(uploadsDir, "tmp"));
-ensureDir(path.join(uploadsDir, "tmp/company-logos"));
+const driver = String(process.env.UPLOAD_DRIVER || "spaces")
+  .trim()
+  .toLowerCase();
+const useLocalDisk = driver === "local";
 
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    // For update routes: company id is known -> store directly in company folder.
-    const rawCompanyId = req.params?.id;
-    const companyId = Number.isFinite(parseInt(rawCompanyId, 10)) ? parseInt(rawCompanyId, 10) : null;
+if (useLocalDisk) {
+  // Ensure base folders exist
+  ensureDir(uploadsDir);
+  ensureDir(path.join(uploadsDir, "companies"));
+  ensureDir(path.join(uploadsDir, "tmp"));
+  ensureDir(path.join(uploadsDir, "tmp/company-logos"));
+}
 
-    if (companyId) {
-      const companyDir = path.join(uploadsDir, `companies/${companyId}`);
-      ensureDir(companyDir);
-      return cb(null, companyDir);
-    }
+const storage = useLocalDisk
+  ? multer.diskStorage({
+      destination: (req, _file, cb) => {
+        // For update routes: company id is known -> store directly in company folder.
+        const rawCompanyId = req.params?.id;
+        const companyId = Number.isFinite(parseInt(rawCompanyId, 10))
+          ? parseInt(rawCompanyId, 10)
+          : null;
 
-    // For create routes: company id isn't known yet -> store in tmp then move after insert.
-    return cb(null, path.join(uploadsDir, "tmp/company-logos"));
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    cb(null, `logo-${uniqueSuffix}${ext || ""}`);
-  },
-});
+        if (companyId) {
+          const companyDir = path.join(uploadsDir, `companies/${companyId}`);
+          ensureDir(companyDir);
+          return cb(null, companyDir);
+        }
+
+        // For create routes: company id isn't known yet -> store in tmp then move after insert.
+        return cb(null, path.join(uploadsDir, "tmp/company-logos"));
+      },
+      filename: (_req, file, cb) => {
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const ext = path.extname(file.originalname || "").toLowerCase();
+        cb(null, `logo-${uniqueSuffix}${ext || ""}`);
+      },
+    })
+  : multer.memoryStorage();
 
 const fileFilter = (_req, file, cb) => {
   if (file.mimetype?.startsWith("image/")) return cb(null, true);

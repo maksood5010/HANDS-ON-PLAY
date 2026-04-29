@@ -11,6 +11,7 @@ import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { putObject } from "../services/storage/index.js";
 
 const normalizeSlug = (slug) => {
   if (slug === undefined) return undefined;
@@ -41,6 +42,24 @@ const parsePurchaseDate = (raw) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isSpacesDriver = () =>
+  String(process.env.UPLOAD_DRIVER || "spaces")
+    .trim()
+    .toLowerCase() === "spaces";
+
+const safeExtFromMimeOrName = ({ mimetype, originalname, filename }) => {
+  const extFromName = path.extname(originalname || filename || "").toLowerCase();
+  if (extFromName) return extFromName;
+  if (typeof mimetype === "string") {
+    if (mimetype === "image/png") return ".png";
+    if (mimetype === "image/jpeg") return ".jpg";
+    if (mimetype === "image/webp") return ".webp";
+    if (mimetype === "image/gif") return ".gif";
+    if (mimetype === "image/svg+xml") return ".svg";
+  }
+  return "";
+};
+
 const moveCompanyLogoIfNeeded = async ({ file, companyId }) => {
   if (!file?.path || !companyId) return null;
 
@@ -65,6 +84,30 @@ const moveCompanyLogoIfNeeded = async ({ file, companyId }) => {
 
   await fs.promises.rename(file.path, destAbs);
   return `companies/${companyId}/${destFilename}`;
+};
+
+const storeCompanyLogoIfNeeded = async ({ file, companyId, companySlug }) => {
+  if (!file) return null;
+
+  if (isSpacesDriver()) {
+    if (!companySlug || typeof companySlug !== "string") return null;
+    if (!file.buffer) return null;
+
+    const ext = safeExtFromMimeOrName(file);
+    const key = `companies/${companySlug}/logos/logo-${Date.now()}-${Math.round(
+      Math.random() * 1e9
+    )}${ext}`;
+
+    await putObject({
+      key,
+      body: file.buffer,
+      contentType: file.mimetype || "application/octet-stream",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+    return key;
+  }
+
+  return await moveCompanyLogoIfNeeded({ file, companyId });
 };
 
 const extractAdminCreds = (body) => {
@@ -243,9 +286,10 @@ export const createCompanyHandler = async (req, res) => {
     const { username: adminUsername, password: adminPassword } = extractAdminCreds(req.body);
 
     if (!name) return res.status(400).json({ error: "Company name is required" });
-    if (req.body?.slug !== undefined && slug === null) {
-      return res.status(400).json({ error: "Invalid slug" });
+    if (req.body?.slug === undefined) {
+      return res.status(400).json({ error: "Company slug is required" });
     }
+    if (slug === null) return res.status(400).json({ error: "Invalid slug" });
 
     if (!purchase_date) return res.status(400).json({ error: "purchase_date is required" });
     if (!payment_cycle) return res.status(400).json({ error: "Invalid payment_cycle" });
@@ -311,7 +355,11 @@ export const createCompanyHandler = async (req, res) => {
 
       // If a logo file was uploaded, move it and persist logo_path.
       if (req.file) {
-        const logo_path = await moveCompanyLogoIfNeeded({ file: req.file, companyId: company.id });
+        const logo_path = await storeCompanyLogoIfNeeded({
+          file: req.file,
+          companyId: company.id,
+          companySlug: slug,
+        });
         if (logo_path) {
           const logoRes = await client.query(
             `UPDATE companies
@@ -371,6 +419,10 @@ export const updateCompanyHandler = async (req, res) => {
       return res.status(400).json({ error: "Invalid company id" });
     }
 
+    // Preload company so we can use its slug for Spaces uploads.
+    const existingCompany = await getCompanyById(companyId);
+    if (!existingCompany) return res.status(404).json({ error: "Company not found" });
+
     const fields = {};
     if (req.body?.name !== undefined) {
       const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
@@ -378,9 +430,7 @@ export const updateCompanyHandler = async (req, res) => {
       fields.name = name;
     }
     if (req.body?.slug !== undefined) {
-      const slug = normalizeSlug(req.body.slug);
-      if (slug === null) return res.status(400).json({ error: "Invalid slug" });
-      fields.slug = slug;
+      return res.status(400).json({ error: "Company slug cannot be changed" });
     }
     if (req.body?.purchase_date !== undefined) {
       const purchase_date = parsePurchaseDate(req.body.purchase_date);
@@ -425,7 +475,11 @@ export const updateCompanyHandler = async (req, res) => {
     }
 
     if (req.file) {
-      const logo_path = await moveCompanyLogoIfNeeded({ file: req.file, companyId });
+      const logo_path = await storeCompanyLogoIfNeeded({
+        file: req.file,
+        companyId,
+        companySlug: existingCompany.slug,
+      });
       if (logo_path) fields.logo_path = logo_path;
     }
 

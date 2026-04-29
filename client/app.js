@@ -1,5 +1,5 @@
 // Device key configuration - change this for each device instance
-const DEVICE_KEY = '4TAD6N';
+const DEVICE_KEY = 'V9G58C';
 
 // Get API URL - use relative path if served from same origin, otherwise use full URL
 const API_URL = window.location.hostname === 'localhost' 
