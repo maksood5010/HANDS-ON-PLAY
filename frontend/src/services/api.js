@@ -12,6 +12,8 @@ const api = axios.create({
 
 export const getUploadUrl = (relativePath) => {
   if (!relativePath || typeof relativePath !== "string") return null;
+  const raw = relativePath.trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
   const trimmed = relativePath.replace(/^\/+/, "");
   return `${UPLOAD_BASE_URL}/uploads/${trimmed}`;
 };
@@ -103,7 +105,7 @@ export const companyAPI = {
       payload.append("purchase_date", purchase_date);
       payload.append("payment_cycle", payment_cycle);
       payload.append("device_limit", String(device_limit ?? 0));
-      if (slug !== undefined) payload.append("slug", slug);
+      payload.append("slug", slug);
       if (contact_name !== undefined) payload.append("contact_name", contact_name);
       if (contact_email !== undefined) payload.append("contact_email", contact_email);
       if (contact_phone !== undefined) payload.append("contact_phone", contact_phone);
@@ -112,7 +114,7 @@ export const companyAPI = {
       payload.append("admin", JSON.stringify(admin));
       payload.append("logo", logo);
     } else {
-      if (slug !== undefined) payload.slug = slug;
+      payload.slug = slug;
       if (contact_name !== undefined) payload.contact_name = contact_name;
       if (contact_email !== undefined) payload.contact_email = contact_email;
       if (contact_phone !== undefined) payload.contact_phone = contact_phone;
@@ -126,11 +128,14 @@ export const companyAPI = {
     const logo = fields?.logo;
     const hasLogo = logo instanceof File;
 
-    const payload = hasLogo ? new FormData() : { ...(fields || {}) };
+    // Slug is immutable; never send it to backend.
+    const safeFields = { ...(fields || {}) };
+    delete safeFields.slug;
+    const payload = hasLogo ? new FormData() : safeFields;
 
     if (hasLogo) {
       // Copy all scalar fields into FormData
-      Object.entries(fields || {}).forEach(([key, value]) => {
+      Object.entries(safeFields || {}).forEach(([key, value]) => {
         if (key === "logo") return;
         if (value === undefined) return;
         if (value === null) return payload.append(key, "");
@@ -216,7 +221,8 @@ export const playlistAPI = {
   // Upload multiple files to a playlist in a single request
   // files: File[]
   // durations: number[] | (number | null)[]  (per-file durations, same order as files; use null/undefined for videos)
-  uploadFiles: async (playlistId, files, durations = []) => {
+  // options: { onProgress?: (percent:number, evt?:ProgressEvent) => void }
+  uploadFiles: async (playlistId, files, durations = [], options = {}) => {
     const formData = new FormData();
 
     files.forEach((file, index) => {
@@ -243,6 +249,14 @@ export const playlistAPI = {
         headers: {
           "Content-Type": "multipart/form-data",
           "x-user-id": userId || "",
+        },
+        onUploadProgress: (evt) => {
+          const total = evt?.total;
+          const loaded = evt?.loaded ?? 0;
+          if (!options?.onProgress) return;
+          if (!total || total <= 0) return options.onProgress(0, evt);
+          const percent = Math.max(0, Math.min(100, Math.round((loaded * 100) / total)));
+          return options.onProgress(percent, evt);
         },
       }
     );
@@ -393,7 +407,11 @@ export const dashboardAPI = {
 };
 
 export const getFileUrl = (filePath) => {
-  return `${UPLOAD_BASE_URL}/uploads/${filePath}`;
+  if (!filePath || typeof filePath !== "string") return null;
+  const raw = filePath.trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const trimmed = filePath.replace(/^\/+/, "");
+  return `${UPLOAD_BASE_URL}/uploads/${trimmed}`;
 };
 
 export default api;

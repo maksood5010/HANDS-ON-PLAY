@@ -175,7 +175,7 @@ export const getActivePlaylist = async (companyId, deviceGroupId = null) => {
 export const deletePlaylist = async (playlistId, companyId) => {
   const result = await pool.query(
     `DELETE FROM playlists 
-     WHERE id = $1 AND company_id = $2
+     WHERE id = $1 AND company_id = $2 AND status != 'active'
      RETURNING id`,
     [playlistId, companyId]
   );

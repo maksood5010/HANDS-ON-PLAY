@@ -18,7 +18,15 @@ export const findUserByUsername = async (username) => {
 
 export const findUserById = async (id) => {
   const result = await pool.query(
-    "SELECT id, company_id, username, role, created_at FROM users WHERE id = $1",
+    `SELECT u.id,
+            u.company_id,
+            c.slug AS company_slug,
+            u.username,
+            u.role,
+            u.created_at
+     FROM users u
+     INNER JOIN companies c ON c.id = u.company_id
+     WHERE u.id = $1`,
     [id]
   );
   return result.rows[0] || null;

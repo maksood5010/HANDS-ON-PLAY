@@ -8,7 +8,7 @@ async function createUsersTable() {
       CREATE TABLE IF NOT EXISTS companies (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
-        slug TEXT UNIQUE,
+        slug TEXT UNIQUE NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);

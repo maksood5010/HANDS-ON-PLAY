@@ -30,9 +30,22 @@ import pool from "../config/db.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { putObject } from "../services/storage/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isSpacesDriver = () =>
+  String(process.env.UPLOAD_DRIVER || "spaces")
+    .trim()
+    .toLowerCase() === "spaces";
+
+const sanitizeForKey = (raw) =>
+  String(raw || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 120) || "file";
 
 // Create playlist
 export const createPlaylistHandler = async (req, res) => {
@@ -114,10 +127,24 @@ export const deletePlaylistHandler = async (req, res) => {
     const { id } = req.params;
     const companyId = req.user.company_id;
 
+    const existing = await getPlaylistById(parseInt(id), companyId);
+    if (!existing) {
+      return res.status(404).json({ error: "Playlist not found" });
+    }
+
+    if (String(existing.status || "").toLowerCase() === "active") {
+      return res.status(400).json({
+        error: "Cannot delete an active playlist. Deactivate it first.",
+      });
+    }
+
     const playlist = await deletePlaylist(parseInt(id), companyId);
     
     if (!playlist) {
-      return res.status(404).json({ error: "Playlist not found" });
+      // Could happen if status changed to active between checks
+      return res.status(400).json({
+        error: "Cannot delete an active playlist. Deactivate it first.",
+      });
     }
 
     res.json({ success: true, message: "Playlist deleted successfully" });
@@ -128,20 +155,55 @@ export const deletePlaylistHandler = async (req, res) => {
 };
 
 // Helper to save an uploaded file and create a playlist item
-const processUploadedFile = async (companyId, playlistId, file, userId, durationOverride = null) => {
+const processUploadedFile = async (
+  companyId,
+  companySlug,
+  playlistId,
+  file,
+  userId,
+  durationOverride = null
+) => {
   // Determine file type
   const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
 
-  // Get relative path for storage
-  const relativePath = path
-    .relative(path.join(__dirname, "../uploads"), file.path)
-    .replace(/\\/g, "/");
+  let relativePath = null;
+  let storedName = file.filename || null;
+
+  if (isSpacesDriver()) {
+    const companyFolder =
+      companySlug && typeof companySlug === "string" ? companySlug : String(companyId);
+
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const base = sanitizeForKey(path.basename(file.originalname || "file", ext));
+    const key = `companies/${companyFolder}/media/${Date.now()}-${Math.round(
+      Math.random() * 1e9
+    )}-${base}${ext}`;
+
+    if (!file.buffer) {
+      throw new Error("Spaces upload expected in-memory file buffer");
+    }
+
+    await putObject({
+      key,
+      body: file.buffer,
+      contentType: file.mimetype || "application/octet-stream",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+
+    relativePath = key;
+    storedName = path.posix.basename(key);
+  } else {
+    // Get relative path for local disk storage
+    relativePath = path
+      .relative(path.join(__dirname, "../uploads"), file.path)
+      .replace(/\\/g, "/");
+  }
 
   // Save file metadata
   const fileRecord = await saveFile(
     companyId,
     file.originalname,
-    file.filename,
+    storedName,
     relativePath,
     fileType,
     file.size,
@@ -186,12 +248,19 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
     const playlist = await getPlaylistById(parseInt(playlistId), companyId);
     if (!playlist) {
       // Delete uploaded file if playlist doesn't exist
-      fs.unlinkSync(file.path);
+      if (file?.path) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {
+          // ignore
+        }
+      }
       return res.status(404).json({ error: "Playlist not found" });
     }
 
     const { fileRecord, playlistItem } = await processUploadedFile(
       companyId,
+      req.user?.company_slug ?? null,
       parseInt(playlistId),
       file,
       userId,
@@ -206,7 +275,7 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
   } catch (error) {
     console.error("Error uploading file:", error);
     // Delete file if error occurred
-    if (req.file) {
+    if (req.file?.path) {
       try {
         fs.unlinkSync(req.file.path);
       } catch (unlinkError) {
@@ -239,7 +308,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
       // Delete uploaded files if playlist doesn't exist
       for (const file of files) {
         try {
-          fs.unlinkSync(file.path);
+          if (file?.path) fs.unlinkSync(file.path);
         } catch {
           // ignore
         }
@@ -264,6 +333,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
       const duration = durations[i] ?? null;
       const { fileRecord, playlistItem } = await processUploadedFile(
         companyId,
+        req.user?.company_slug ?? null,
         parseInt(playlistId),
         file,
         userId,
@@ -284,7 +354,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
     if (req.files && Array.isArray(req.files)) {
       for (const file of req.files) {
         try {
-          fs.unlinkSync(file.path);
+          if (file?.path) fs.unlinkSync(file.path);
         } catch {
           // ignore cleanup errors
         }

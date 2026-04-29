@@ -2,6 +2,7 @@ import { getActivePlaylistWithMeta } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
 import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
 import pool from "../config/db.js";
+import { getPublicFileUrl } from "../utils/publicFileUrl.js";
 
 function toTs(v) {
   const t = new Date(v ?? 0).getTime();
@@ -131,7 +132,7 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       duration: item.duration,
       display_order: item.display_order,
       file_type: item.file_type,
-      file_url: `${req.protocol}://${req.get("host")}/uploads/${item.file_path}`,
+      file_url: getPublicFileUrl({ req, key: item.file_path }),
       original_name: item.original_name,
       mime_type: item.mime_type,
     }));
@@ -186,7 +187,7 @@ export const validateDeviceKey = async (req, res) => {
         );
         const logoPath = companyRes.rows[0]?.logo_path || null;
         if (logoPath) {
-          placeholderLogoUrl = `${req.protocol}://${req.get("host")}/uploads/${logoPath}`;
+          placeholderLogoUrl = getPublicFileUrl({ req, key: logoPath });
         }
       }
     } catch (e) {

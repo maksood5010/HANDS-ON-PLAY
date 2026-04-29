@@ -318,6 +318,16 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
+.delete-btn-small:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.delete-btn-small:disabled:hover {
+  color: #94a3b8;
+  background: transparent;
+}
+
 .playlist-description {
   font-size: 13px;
   color: #64748b;
@@ -646,6 +656,9 @@
 }
 
 .playlist-item-card {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  min-height: 112px;
   background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
   border: 1px solid #f1f5f9;
   border-radius: 16px;
@@ -1147,6 +1160,64 @@
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Upload progress (matches existing gradient/pill patterns) */
+.playlist-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-right: auto;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.playlist-upload-progress--top {
+  margin: 2px 0 18px 0;
+  max-width: 100%;
+}
+
+.playlist-upload-progress__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.playlist-upload-progress__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #8B5CF6;
+  animation: spin 0.8s linear infinite;
+}
+
+.playlist-upload-progress__label {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(139, 92, 246, 0.06) 100%);
+  color: #7C3AED;
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.playlist-upload-progress__bar {
+  height: 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.playlist-upload-progress__barFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #8B5CF6 0%, #A78BFA 50%, #C4B5FD 100%);
+  border-radius: 999px;
+  transition: width 120ms ease-out;
 }
 
 /* Scrollbar Styling */

@@ -13,6 +13,7 @@ import userRoutes from "./routes/userRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import companyRoutes from "./routes/companyRoutes.js";
 import { startScheduledPlaylistPushJob } from "./jobs/scheduledPlaylistPush.js";
+import { getSpacesPublicBaseUrl } from "./utils/spacesClient.js";
 
 dotenv.config();
 
@@ -26,8 +27,23 @@ const PORT = process.env.PORT || 5041;
 app.use(cors());
 app.use(express.json());
 
+const uploadDriver = String(process.env.UPLOAD_DRIVER || "spaces").trim().toLowerCase();
+
 // Serve uploaded files
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// - local: serve from disk (current behavior)
+// - spaces: redirect legacy /uploads/<key> requests to the public CDN/base URL
+if (uploadDriver === "spaces") {
+  // Express 5 (path-to-regexp v6) doesn't accept "/uploads/*" without a named param.
+  // Use a regex route to capture the remainder.
+  app.get(/^\/uploads\/(.+)$/, (req, res) => {
+    const key = String(req.params?.[0] || "").replace(/^\/+/, "");
+    if (!key) return res.status(404).end();
+    const base = getSpacesPublicBaseUrl();
+    return res.redirect(302, `${base}/${key}`);
+  });
+} else {
+  app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+}
 
 // Serve client display app
 app.use("/client", express.static(path.join(__dirname, "../client")));
