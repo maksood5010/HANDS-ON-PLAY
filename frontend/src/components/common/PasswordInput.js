@@ -8,6 +8,7 @@ export default function PasswordInput({
   defaultVisible = false,
   visibleLabel = "Hide password",
   hiddenLabel = "Show password",
+  icon,
   ...inputProps
 }) {
   const autoId = useId();
@@ -16,11 +17,12 @@ export default function PasswordInput({
 
   return (
     <div className={`password-input ${className}`.trim()}>
+      {icon && <span className="password-input__icon">{icon}</span>}
       <input
         {...inputProps}
         id={inputId}
         type={visible ? "text" : "password"}
-        className={`password-input__field ${inputClassName}`.trim()}
+        className={`password-input__field ${icon ? "has-icon" : ""} ${inputClassName}`.trim()}
       />
       <button
         type="button"
