@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { putObject } from "../services/storage/index.js";
+import { deleteObject, putObject } from "../services/storage/index.js";
 
 const normalizeSlug = (slug) => {
   if (slug === undefined) return undefined;
@@ -503,8 +503,11 @@ export const deleteCompanyHandler = async (req, res) => {
       return res.status(400).json({ error: "Invalid company id" });
     }
 
-    // If the company has users/devices/etc, Postgres will reject deletion due to FK constraints.
-    // Return a clear 409 instead of a generic 500.
+    const company = await getCompanyById(companyId);
+    if (!company) return res.status(404).json({ error: "Company not found" });
+
+    // If the company has devices/playlists/files, deleting it safely requires a dedicated
+    // cascade strategy. We keep the default behavior conservative.
     const counts = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS count FROM users WHERE company_id = $1`, [companyId]),
       pool.query(`SELECT COUNT(*)::int AS count FROM devices WHERE company_id = $1`, [companyId]),
@@ -518,6 +521,60 @@ export const deleteCompanyHandler = async (req, res) => {
     const playlistCount = counts[2].rows[0]?.count ?? 0;
     const fileCount = counts[3].rows[0]?.count ?? 0;
     const groupCount = counts[4].rows[0]?.count ?? 0;
+
+    // Allow deleting a "fresh" company that only has its users and groups (including the
+    // default "All devices" group). This avoids a deadlock where the last admin cannot be
+    // deleted, and the company cannot be deleted because it still has that admin.
+    if (deviceCount === 0 && playlistCount === 0 && fileCount === 0) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        // Remove groups first (should be safe because there are no devices/playlists).
+        if (groupCount > 0) {
+          await client.query(`DELETE FROM device_groups WHERE company_id = $1`, [companyId]);
+        }
+
+        // Remove users (safe because there are no other dependent records).
+        if (userCount > 0) {
+          await client.query(`DELETE FROM users WHERE company_id = $1`, [companyId]);
+        }
+
+        const deleted = await client.query(
+          `DELETE FROM companies WHERE id = $1 RETURNING id`,
+          [companyId]
+        );
+        if (deleted.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Company not found" });
+        }
+
+        await client.query("COMMIT");
+
+        // Best-effort logo cleanup (non-fatal).
+        const logoPath = company.logo_path;
+        if (logoPath && typeof logoPath === "string") {
+          try {
+            if (isSpacesDriver()) {
+              await deleteObject({ key: logoPath });
+            } else {
+              const uploadsDir = path.join(__dirname, "../uploads");
+              const abs = path.join(uploadsDir, logoPath);
+              await fs.promises.unlink(abs).catch(() => {});
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        return res.json({ success: true, message: "Company deleted successfully" });
+      } catch (txErr) {
+        await client.query("ROLLBACK");
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    }
 
     if (userCount > 0 || deviceCount > 0 || playlistCount > 0 || fileCount > 0 || groupCount > 0) {
       return res.status(409).json({
@@ -535,6 +592,22 @@ export const deleteCompanyHandler = async (req, res) => {
 
     const deleted = await deleteCompanyById(companyId);
     if (!deleted) return res.status(404).json({ error: "Company not found" });
+
+    // Best-effort logo cleanup (non-fatal).
+    const logoPath = company.logo_path;
+    if (logoPath && typeof logoPath === "string") {
+      try {
+        if (isSpacesDriver()) {
+          await deleteObject({ key: logoPath });
+        } else {
+          const uploadsDir = path.join(__dirname, "../uploads");
+          const abs = path.join(uploadsDir, logoPath);
+          await fs.promises.unlink(abs).catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     return res.json({ success: true, message: "Company deleted successfully" });
   } catch (error) {

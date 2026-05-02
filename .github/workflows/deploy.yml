@@ -21,9 +21,14 @@ jobs:
 
       - name: Build Frontend
         working-directory: ./frontend
+        env:
+          # Optional: set REACT_APP_API_URL in repo secrets (e.g. https://app.example.com/api).
+          # Default same-origin /api keeps HTTPS pages from calling http:// (mixed content).
+          SECRET_REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
         run: |
           npm install
-          REACT_APP_API_URL=http://${{ secrets.DROPLET_IP }}/api npm run build
+          export REACT_APP_API_URL="${SECRET_REACT_APP_API_URL:-/api}"
+          npm run build
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
