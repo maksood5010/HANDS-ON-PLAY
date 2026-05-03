@@ -1,8 +1,11 @@
 import "../DeviceGroups/DeviceGroups.css";
 import "./Companies.css";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { companyAPI, getUploadUrl } from "../../services/api";
 import PasswordInput from "../../components/common/PasswordInput";
+import ConfirmSheet from "../../components/common/ConfirmSheet/ConfirmSheet";
+import { useIsMobile } from "../../hooks/useIsMobile";
+import { LayoutTopBarActionContext } from "../../components/Layout/LayoutTopBarActionContext";
 
 function Companies() {
   const openNativePicker = (e) => {
@@ -53,6 +56,15 @@ function Companies() {
   const [editAdditionalInfo, setEditAdditionalInfo] = useState("");
   const [editLogo, setEditLogo] = useState(null);
 
+  const [mobileView, setMobileView] = useState("list");
+  const [confirmCfg, setConfirmCfg] = useState(null);
+  const [creatingCompany, setCreatingCompany] = useState(false);
+  const [createModalError, setCreateModalError] = useState("");
+  const [editModalError, setEditModalError] = useState("");
+
+  const isMobile = useIsMobile(1023);
+  const setTopBarAction = useContext(LayoutTopBarActionContext);
+
   const loadCompanies = async () => {
     setError("");
     setLoading(true);
@@ -93,7 +105,44 @@ function Companies() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!isMobile) setMobileView("list");
+  }, [isMobile]);
+
+  useEffect(() => {
+    const set = setTopBarAction;
+    if (typeof set !== "function") return;
+    if (!isMobile || mobileView !== "list") {
+      set(null);
+      return;
+    }
+    set(
+      <button
+        type="button"
+        className="mobile-top-bar-add-btn companies-top-add"
+        onClick={() => {
+          setCreateModalError("");
+          setShowCreateModal(true);
+        }}
+        aria-label="Add company"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    );
+    return () => set(null);
+  }, [isMobile, mobileView, setTopBarAction]);
+
+  const selectCompany = async (c) => {
+    setSelectedCompany(c);
+    if (isMobile) setMobileView("detail");
+    await loadSelectedCompanyAdmin(c.id);
+  };
+
   const startEdit = (c) => {
+    setEditModalError("");
     setEditId(c.id);
     setEditName(c.name || "");
     setEditPurchaseDate(c.purchase_date ? String(c.purchase_date).slice(0, 10) : "");
@@ -108,6 +157,7 @@ function Companies() {
   };
 
   const cancelEdit = () => {
+    setEditModalError("");
     setEditId(null);
     setEditName("");
     setEditPurchaseDate("");
@@ -123,13 +173,14 @@ function Companies() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    setError("");
+    setCreateModalError("");
+    const slug = newSlug.trim();
+    if (!slug) {
+      setCreateModalError("Company slug is required");
+      return;
+    }
+    setCreatingCompany(true);
     try {
-      const slug = newSlug.trim();
-      if (!slug) {
-        setError("Company slug is required");
-        return;
-      }
       await companyAPI.createCompany({
         name: newName.trim(),
         slug,
@@ -159,12 +210,14 @@ function Companies() {
       setShowCreateModal(false);
       await loadCompanies();
     } catch (err) {
-      setError(err.response?.data?.error || "Failed to create company");
+      setCreateModalError(err.response?.data?.error || "Failed to create company");
+    } finally {
+      setCreatingCompany(false);
     }
   };
 
   const handleSave = async () => {
-    setError("");
+    setEditModalError("");
     try {
       const fields = {
         name: editName.trim(),
@@ -181,21 +234,71 @@ function Companies() {
       cancelEdit();
       await loadCompanies();
     } catch (err) {
-      setError(err.response?.data?.error || "Failed to update company");
+      setEditModalError(err.response?.data?.error || "Failed to update company");
     }
   };
 
-  const handleDelete = async (c) => {
+  const runDeleteCompany = async (c) => {
     setError("");
-    const ok = window.confirm(`Delete company "${c.name}"?`);
-    if (!ok) return;
     try {
       await companyAPI.deleteCompany(c.id);
+      if (selectedCompany?.id === c.id) {
+        setSelectedCompany(null);
+        setMobileView("list");
+      }
       await loadCompanies();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to delete company");
     }
   };
+
+  const requestDeleteCompany = (c) => {
+    setConfirmCfg({
+      title: "Delete company",
+      message: `Delete company "${c.name}"? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: async () => {
+        await runDeleteCompany(c);
+        setConfirmCfg(null);
+      },
+    });
+  };
+
+  const requestResetAdminPassword = () => {
+    const adminLabel = companyAdminUser?.username || "admin";
+    setConfirmCfg({
+      title: "Reset admin password",
+      message: `Reset password for company admin "${adminLabel}"?`,
+      confirmLabel: "Reset password",
+      danger: true,
+      onConfirm: async () => {
+        setError("");
+        try {
+          const res = await companyAPI.resetCompanyAdminPassword(selectedCompany.id);
+          setCompanyAdminUser(res.adminUser || companyAdminUser);
+          setLastResetPassword(res.tempPassword || "");
+          setShowAdminCredsModal(true);
+        } catch (err) {
+          setError(err.response?.data?.error || "Failed to reset admin password");
+        } finally {
+          setConfirmCfg(null);
+        }
+      },
+    });
+  };
+
+  const copyToClipboard = async (text, label) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      setError(`Could not copy ${label}`);
+    }
+  };
+
+  const listHiddenClass = isMobile && mobileView === "detail" ? " is-hidden-mobile" : "";
+  const detailHiddenClass = isMobile && mobileView === "list" ? " is-hidden-mobile" : "";
 
   return (
     <div className="device-groups-page companies-page">
@@ -206,9 +309,12 @@ function Companies() {
             <p>Platform super-admin: manage all companies</p>
           </div>
           <button
-            className="create-btn"
+            className="create-btn create-btn-desktop-only"
             type="button"
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => {
+              setCreateModalError("");
+              setShowCreateModal(true);
+            }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -227,7 +333,7 @@ function Companies() {
       )}
 
       <div className="device-groups-container">
-        <div className="device-groups-list">
+        <div className={`device-groups-list${listHiddenClass}`}>
           <h2>All Companies</h2>
           {loading ? (
             <div className="loading">Loading companies...</div>
@@ -248,10 +354,7 @@ function Companies() {
                 <div
                   key={c.id}
                   className={`group-card ${selectedCompany?.id === c.id ? "active" : ""}`}
-                  onClick={() => {
-                    setSelectedCompany(c);
-                    loadSelectedCompanyAdmin(c.id);
-                  }}
+                  onClick={() => selectCompany(c)}
                 >
                   <div className="group-card-header">
                     {companyLogoUrl(c) ? (
@@ -275,9 +378,10 @@ function Companies() {
                     )}
                     <button
                       className="delete-btn-small"
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(c);
+                        requestDeleteCompany(c);
                       }}
                       title="Delete company"
                     >
@@ -303,9 +407,19 @@ function Companies() {
           )}
         </div>
 
-        <div className="group-detail">
+        <div className={`group-detail${detailHiddenClass}`}>
           {selectedCompany ? (
             <>
+              {isMobile && mobileView === "detail" && (
+                <div className="group-detail-back-bar">
+                  <button type="button" className="group-detail-back" onClick={() => setMobileView("list")}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span>Companies</span>
+                  </button>
+                </div>
+              )}
               <div className="detail-header">
                 <div className="detail-title-row">
                   {companyLogoUrl(selectedCompany) ? (
@@ -424,25 +538,11 @@ function Companies() {
                       <span className="info-value">{companyAdminUser?.username || "—"}</span>
                     </div>
                   </div>
-                  <div style={{ marginTop: 14, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <div className="companies-admin-actions">
                     <button
                       className="edit-group-btn"
                       type="button"
-                      onClick={async () => {
-                        setError("");
-                        const ok = window.confirm(
-                          `Reset password for company admin "${companyAdminUser?.username || "admin"}"?`
-                        );
-                        if (!ok) return;
-                        try {
-                          const res = await companyAPI.resetCompanyAdminPassword(selectedCompany.id);
-                          setCompanyAdminUser(res.adminUser || companyAdminUser);
-                          setLastResetPassword(res.tempPassword || "");
-                          setShowAdminCredsModal(true);
-                        } catch (err) {
-                          setError(err.response?.data?.error || "Failed to reset admin password");
-                        }
-                      }}
+                      onClick={requestResetAdminPassword}
                       disabled={!selectedCompany?.id}
                     >
                       Reset admin password
@@ -467,13 +567,54 @@ function Companies() {
       </div>
 
       {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content modal-content-large" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            if (!creatingCompany) {
+              setCreateModalError("");
+              setShowCreateModal(false);
+            }
+          }}
+        >
+          <div
+            className="modal-content modal-content-large modal-content--stacked companies-company-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <h2>Add Company</h2>
-              <button className="close-btn" onClick={() => setShowCreateModal(false)}>×</button>
+              <button
+                type="button"
+                className="close-btn"
+                disabled={creatingCompany}
+                onClick={() => {
+                  setCreateModalError("");
+                  setShowCreateModal(false);
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
             </div>
-            <form onSubmit={handleCreate} autoComplete="off">
+            {createModalError && (
+              <div className="companies-modal-error" role="alert">
+                <span className="companies-modal-error__text">{createModalError}</span>
+                <button
+                  type="button"
+                  className="companies-modal-error__dismiss"
+                  onClick={() => setCreateModalError("")}
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <form
+              onSubmit={handleCreate}
+              autoComplete="off"
+              className="modal-form-stack"
+              aria-busy={creatingCompany}
+            >
+              <fieldset className="modal-body-scroll companies-modal-fieldset" disabled={creatingCompany}>
               <div className="companies-form-grid">
               <div className="form-group">
                 <label>Name *</label>
@@ -571,12 +712,30 @@ function Companies() {
                 />
               </div>
               <div className="form-group companies-full">
-                <label>Company logo (optional)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setNewLogo(e.target.files?.[0] || null)}
-                />
+                <span className="companies-field-label">Company logo (optional)</span>
+                <div className="companies-logo-field">
+                  <label className="companies-logo-upload">
+                    <span className="companies-logo-upload__btn" tabIndex={-1}>
+                      Choose image
+                    </span>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setNewLogo(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  {newLogo && (
+                    <div className="companies-logo-picked">
+                      <span className="companies-logo-picked__name" title={newLogo.name}>
+                        {newLogo.name}
+                      </span>
+                      <button type="button" className="companies-logo-remove" onClick={() => setNewLogo(null)}>
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <small>Used as the placeholder image on devices when no playlist is active</small>
               </div>
               <div className="form-group">
@@ -617,24 +776,33 @@ function Companies() {
                 )}
               </div>
               </div>
-              <div className="modal-actions">
+              </fieldset>
+              <div className="modal-actions modal-actions-footer">
                 <button
                   type="button"
                   className="cancel-btn"
-                  onClick={() => setShowCreateModal(false)}
+                  disabled={creatingCompany}
+                  onClick={() => {
+                    setCreateModalError("");
+                    setShowCreateModal(false);
+                  }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="submit-btn"
+                  className="submit-btn companies-create-submit"
                   disabled={
+                    creatingCompany ||
                     !newAdminPassword ||
                     !newAdminPasswordConfirm ||
                     newAdminPasswordConfirm !== newAdminPassword
                   }
                 >
-                  Create Company
+                  {creatingCompany && (
+                    <span className="companies-btn-spinner" aria-hidden="true" />
+                  )}
+                  {creatingCompany ? "Creating…" : "Create Company"}
                 </button>
               </div>
             </form>
@@ -644,17 +812,35 @@ function Companies() {
 
       {showEditModal && selectedCompany && (
         <div className="modal-overlay" onClick={cancelEdit}>
-          <div className="modal-content modal-content-large" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-content modal-content-large modal-content--stacked companies-company-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <h2>Edit Company</h2>
-              <button className="close-btn" onClick={cancelEdit}>×</button>
+              <button type="button" className="close-btn" onClick={cancelEdit}>×</button>
             </div>
+            {editModalError && (
+              <div className="companies-modal-error" role="alert">
+                <span className="companies-modal-error__text">{editModalError}</span>
+                <button
+                  type="button"
+                  className="companies-modal-error__dismiss"
+                  onClick={() => setEditModalError("")}
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <form
+              className="modal-form-stack"
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSave();
               }}
             >
+              <div className="modal-body-scroll">
               <div className="companies-form-grid">
               <div className="form-group">
                 <label>Name *</label>
@@ -726,16 +912,35 @@ function Companies() {
                 />
               </div>
               <div className="form-group companies-full">
-                <label>Company logo (optional)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setEditLogo(e.target.files?.[0] || null)}
-                />
+                <span className="companies-field-label">Company logo (optional)</span>
+                <div className="companies-logo-field">
+                  <label className="companies-logo-upload">
+                    <span className="companies-logo-upload__btn" tabIndex={-1}>
+                      Choose image
+                    </span>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setEditLogo(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  {editLogo && (
+                    <div className="companies-logo-picked">
+                      <span className="companies-logo-picked__name" title={editLogo.name}>
+                        {editLogo.name}
+                      </span>
+                      <button type="button" className="companies-logo-remove" onClick={() => setEditLogo(null)}>
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <small>Select a new logo to replace the current one</small>
               </div>
               </div>
-              <div className="modal-actions">
+              </div>
+              <div className="modal-actions modal-actions-footer">
                 <button
                   type="button"
                   className="cancel-btn"
@@ -754,38 +959,64 @@ function Companies() {
 
       {showAdminCredsModal && (
         <div className="modal-overlay" onClick={() => setShowAdminCredsModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content companies-admin-creds-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Admin credentials (copy now)</h2>
-              <button className="close-btn" onClick={() => setShowAdminCredsModal(false)}>×</button>
+              <button type="button" className="close-btn" onClick={() => setShowAdminCredsModal(false)}>×</button>
             </div>
-            <div className="detail-section">
+            <div className="detail-section companies-admin-creds-body">
               <p className="section-description">
                 This password is shown only once. After closing, you’ll need to reset again to get a new one.
               </p>
-              <div className="info-grid">
-                <div className="info-item">
-                  <span className="info-label">Username</span>
-                  <span className="info-value">{companyAdminUser?.username || "—"}</span>
+              <div className="companies-creds-block">
+                <span className="companies-creds-label">Username</span>
+                <div className="companies-creds-row">
+                  <code className="companies-creds-value">{companyAdminUser?.username || "—"}</code>
+                  <button
+                    type="button"
+                    className="companies-copy-btn"
+                    onClick={() => copyToClipboard(companyAdminUser?.username, "username")}
+                  >
+                    Copy
+                  </button>
                 </div>
-                <div className="info-item">
-                  <span className="info-label">Temporary password</span>
-                  <span className="info-value">{lastResetPassword || "—"}</span>
+              </div>
+              <div className="companies-creds-block">
+                <span className="companies-creds-label">Temporary password</span>
+                <div className="companies-creds-row companies-creds-row--password">
+                  <pre className="companies-creds-password">{lastResetPassword || "—"}</pre>
+                  <button
+                    type="button"
+                    className="companies-copy-btn"
+                    onClick={() => copyToClipboard(lastResetPassword, "password")}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
             </div>
             <div className="modal-actions">
               <button
                 type="button"
-                className="cancel-btn"
+                className="submit-btn"
                 onClick={() => setShowAdminCredsModal(false)}
               >
-                Close
+                Done
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        open={Boolean(confirmCfg)}
+        title={confirmCfg?.title || "Confirm"}
+        message={confirmCfg?.message || ""}
+        confirmLabel={confirmCfg?.confirmLabel || "OK"}
+        danger={confirmCfg?.danger}
+        onClose={() => setConfirmCfg(null)}
+        onConfirm={confirmCfg?.onConfirm || (async () => {})}
+      />
     </div>
   );
 }

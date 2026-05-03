@@ -1,20 +1,25 @@
 import './Playlists.css';
-import { useState, useEffect, useCallback, memo, useRef } from 'react';
+import { useState, useEffect, useCallback, memo, useRef, useId, useContext } from 'react';
 import { playlistAPI, deviceGroupAPI, getFileUrl } from '../../services/api';
 import Sheet from '../../components/common/Sheet/Sheet';
+import ConfirmSheet from '../../components/common/ConfirmSheet/ConfirmSheet';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { LayoutTopBarActionContext } from '../../components/Layout/LayoutTopBarActionContext';
 
 const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
   selectedPlaylist,
   deviceGroups,
-  playlistSchedules,
+  playlistSchedules: _playlistSchedules,
   loading,
   openNativePicker,
-  formatTime12h,
+  formatTime12h: _formatTime12h,
   onClose,
   onSubmit,
-  onToggleSchedule,
-  onDeleteSchedule,
+  onToggleSchedule: _onToggleSchedule,
+  onDeleteSchedule: _onDeleteSchedule,
 }) {
+  const formId = useId();
+  const useSheetLayout = useIsMobile(640);
   const [form, setForm] = useState({
     mode: 'daily',
     start_time: '',
@@ -36,112 +41,138 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
     });
   }, [selectedPlaylist?.id]);
 
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    onSubmit(form);
+  };
+
+  const formFields = (
+    <>
+      <div className="form-group">
+        <label>Schedule Type *</label>
+        <select
+          value={form.mode}
+          onChange={(e) => setForm((p) => ({ ...p, mode: e.target.value }))}
+          required
+        >
+          <option value="one_time">One-time (start/end)</option>
+          <option value="forever">Forever (optional start)</option>
+          <option value="daily">Daily repeating (Asia/Dubai)</option>
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label>Device Group *</label>
+        <select
+          value={form.device_group_id}
+          onChange={(e) => setForm((p) => ({ ...p, device_group_id: e.target.value }))}
+          required
+        >
+          <option value="">Select a device group</option>
+          {deviceGroups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name} {group.device_count > 0 && `(${group.device_count} devices)`}
+            </option>
+          ))}
+        </select>
+        <small>Select the device group to schedule this playlist for</small>
+      </div>
+
+      {form.mode === 'daily' ? (
+        <>
+          <div className="form-group">
+            <label>Daily Start Time *</label>
+            <input
+              type="time"
+              value={form.daily_start_time}
+              onChange={(e) => setForm((p) => ({ ...p, daily_start_time: e.target.value }))}
+              onClick={openNativePicker}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>Daily End Time *</label>
+            <input
+              type="time"
+              value={form.daily_end_time}
+              onChange={(e) => setForm((p) => ({ ...p, daily_end_time: e.target.value }))}
+              onClick={openNativePicker}
+              required
+            />
+            <small>Timezone: Asia/Dubai (UAE)</small>
+          </div>
+        </>
+      ) : form.mode === 'forever' ? (
+        <>
+          <div className="form-group">
+            <label>Start Time (Optional)</label>
+            <input
+              type="datetime-local"
+              value={form.start_time}
+              onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))}
+              onClick={openNativePicker}
+            />
+            <small>Leave empty to start immediately</small>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="form-group">
+            <label>Start Time *</label>
+            <input
+              type="datetime-local"
+              value={form.start_time}
+              onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))}
+              onClick={openNativePicker}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>End Time *</label>
+            <input
+              type="datetime-local"
+              value={form.end_time}
+              onChange={(e) => setForm((p) => ({ ...p, end_time: e.target.value }))}
+              onClick={openNativePicker}
+              required
+            />
+            <small>Required for one-time schedules</small>
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  const footer = (
+    <div className="modal-actions schedule-modal-footer">
+      <button type="button" className="cancel-btn" onClick={onClose}>
+        Cancel
+      </button>
+      <button type="submit" form={formId} className="submit-btn" disabled={loading}>
+        {loading ? 'Scheduling...' : 'Schedule Playlist'}
+      </button>
+    </div>
+  );
+
+  if (useSheetLayout) {
+    return (
+      <Sheet open title="Schedule Playlist" onClose={onClose} footer={footer} maxWidth="560px">
+        <form id={formId} className="schedule-playlist-form" onSubmit={handleFormSubmit}>
+          {formFields}
+        </form>
+      </Sheet>
+    );
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Schedule Playlist</h2>
-          <button className="close-btn" onClick={onClose}>×</button>
+          <button type="button" className="close-btn" onClick={onClose}>×</button>
         </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSubmit(form);
-          }}
-        >
-          <div className="form-group">
-            <label>Schedule Type *</label>
-            <select
-              value={form.mode}
-              onChange={(e) => setForm((p) => ({ ...p, mode: e.target.value }))}
-              required
-            >
-              <option value="one_time">One-time (start/end)</option>
-              <option value="forever">Forever (optional start)</option>
-              <option value="daily">Daily repeating (Asia/Dubai)</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Device Group *</label>
-            <select
-              value={form.device_group_id}
-              onChange={(e) => setForm((p) => ({ ...p, device_group_id: e.target.value }))}
-              required
-            >
-              <option value="">Select a device group</option>
-              {deviceGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name} {group.device_count > 0 && `(${group.device_count} devices)`}
-                </option>
-              ))}
-            </select>
-            <small>Select the device group to schedule this playlist for</small>
-          </div>
-
-          {form.mode === 'daily' ? (
-            <>
-              <div className="form-group">
-                <label>Daily Start Time *</label>
-                <input
-                  type="time"
-                  value={form.daily_start_time}
-                  onChange={(e) => setForm((p) => ({ ...p, daily_start_time: e.target.value }))}
-                  onClick={openNativePicker}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Daily End Time *</label>
-                <input
-                  type="time"
-                  value={form.daily_end_time}
-                  onChange={(e) => setForm((p) => ({ ...p, daily_end_time: e.target.value }))}
-                  onClick={openNativePicker}
-                  required
-                />
-                <small>Timezone: Asia/Dubai (UAE)</small>
-              </div>
-            </>
-          ) : form.mode === 'forever' ? (
-            <>
-              <div className="form-group">
-                <label>Start Time (Optional)</label>
-                <input
-                  type="datetime-local"
-                  value={form.start_time}
-                  onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))}
-                  onClick={openNativePicker}
-                />
-                <small>Leave empty to start immediately</small>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="form-group">
-                <label>Start Time *</label>
-                <input
-                  type="datetime-local"
-                  value={form.start_time}
-                  onChange={(e) => setForm((p) => ({ ...p, start_time: e.target.value }))}
-                  onClick={openNativePicker}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>End Time *</label>
-                <input
-                  type="datetime-local"
-                  value={form.end_time}
-                  onChange={(e) => setForm((p) => ({ ...p, end_time: e.target.value }))}
-                  onClick={openNativePicker}
-                  required
-                />
-                <small>Required for one-time schedules</small>
-              </div>
-            </>
-          )}
-
+        <form className="schedule-playlist-form" onSubmit={handleFormSubmit}>
+          {formFields}
           <div className="modal-actions">
             <button type="button" className="cancel-btn" onClick={onClose}>
               Cancel
@@ -207,6 +238,11 @@ function Playlists() {
   const [selectedDeviceGroupId, setSelectedDeviceGroupId] = useState('');
   const [playlistSchedules, setPlaylistSchedules] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [mobileView, setMobileView] = useState('list');
+  const [confirmCfg, setConfirmCfg] = useState(null);
+
+  const isMobile = useIsMobile(1023);
+  const setTopBarAction = useContext(LayoutTopBarActionContext);
 
   const revokeUploadPreviews = useCallback(() => {
     const urls = uploadPreviewUrlsRef.current;
@@ -236,6 +272,33 @@ function Playlists() {
     fetchPlaylists();
     fetchDeviceGroups();
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) setMobileView('list');
+  }, [isMobile]);
+
+  useEffect(() => {
+    const set = setTopBarAction;
+    if (typeof set !== 'function') return;
+    if (!isMobile || mobileView !== 'list') {
+      set(null);
+      return;
+    }
+    set(
+      <button
+        type="button"
+        className="mobile-top-bar-add-btn playlists-top-add"
+        onClick={() => setShowCreateModal(true)}
+        aria-label="Create playlist"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    );
+    return () => set(null);
+  }, [isMobile, mobileView, setTopBarAction]);
 
   const fetchDeviceGroups = async () => {
     try {
@@ -272,6 +335,11 @@ function Playlists() {
     }
   };
 
+  const selectPlaylist = async (playlistId) => {
+    if (isMobile) setMobileView('detail');
+    await fetchPlaylistDetails(playlistId);
+  };
+
   const handleCreatePlaylist = async (e) => {
     e.preventDefault();
     if (!newPlaylist.name.trim()) {
@@ -296,6 +364,7 @@ function Playlists() {
       if (createdId) {
         await fetchPlaylistDetails(createdId);
         setShowUploadModal(true);
+        if (isMobile) setMobileView('detail');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create playlist');
@@ -304,28 +373,34 @@ function Playlists() {
     }
   };
 
-  const handleDeletePlaylist = async (id) => {
+  const handleDeletePlaylist = (id) => {
     const target = playlists.find((p) => p.id === id);
     if (String(target?.status || '').toLowerCase() === 'active') {
       setError('Cannot delete an active playlist. Deactivate it first.');
       return;
     }
-    if (!window.confirm('Are you sure you want to delete this playlist?')) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      await playlistAPI.deletePlaylist(id);
-      if (selectedPlaylist?.id === id) {
-        setSelectedPlaylist(null);
-      }
-      fetchPlaylists();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete playlist');
-    } finally {
-      setLoading(false);
-    }
+    setConfirmCfg({
+      title: 'Delete playlist',
+      message: 'Are you sure you want to delete this playlist?',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          await playlistAPI.deletePlaylist(id);
+          if (selectedPlaylist?.id === id) {
+            setSelectedPlaylist(null);
+            setMobileView('list');
+          }
+          fetchPlaylists();
+        } catch (err) {
+          setError(err.response?.data?.error || 'Failed to delete playlist');
+        } finally {
+          setLoading(false);
+          setConfirmCfg(null);
+        }
+      },
+    });
   };
 
   const handleUploadFile = async (e) => {
@@ -422,20 +497,25 @@ function Playlists() {
     setIsDragOver(false);
   };
 
-  const handleDeleteItem = async (itemId) => {
-    if (!window.confirm('Are you sure you want to remove this item from the playlist?')) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      await playlistAPI.deleteItem(itemId);
-      fetchPlaylistDetails(selectedPlaylist.id);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete item');
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteItem = (itemId) => {
+    setConfirmCfg({
+      title: 'Remove item',
+      message: 'Remove this item from the playlist?',
+      confirmLabel: 'Remove',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          await playlistAPI.deleteItem(itemId);
+          fetchPlaylistDetails(selectedPlaylist.id);
+        } catch (err) {
+          setError(err.response?.data?.error || 'Failed to delete item');
+        } finally {
+          setLoading(false);
+          setConfirmCfg(null);
+        }
+      },
+    });
   };
 
   const handleUpdateDuration = async (itemId, duration) => {
@@ -559,37 +639,56 @@ function Playlists() {
     }
   }, [selectedPlaylist?.id]);
 
-  const handleDeleteSchedule = useCallback(async (scheduleId) => {
-    if (!window.confirm('Delete this schedule?')) return;
-    try {
-      setLoading(true);
-      setError('');
-      await playlistAPI.deleteSchedule(scheduleId);
-      const schedulesResp = await playlistAPI.listSchedules({ playlistId: selectedPlaylist.id });
-      setPlaylistSchedules(schedulesResp.schedules || []);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to delete schedule');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedPlaylist?.id]);
+  const handleDeleteSchedule = useCallback(
+    (scheduleId) => {
+      setConfirmCfg({
+        title: 'Delete schedule',
+        message: 'Delete this schedule?',
+        confirmLabel: 'Delete',
+        danger: true,
+        onConfirm: async () => {
+          try {
+            setLoading(true);
+            setError('');
+            await playlistAPI.deleteSchedule(scheduleId);
+            const schedulesResp = await playlistAPI.listSchedules({ playlistId: selectedPlaylist.id });
+            setPlaylistSchedules(schedulesResp.schedules || []);
+          } catch (err) {
+            setError(err.response?.data?.error || 'Failed to delete schedule');
+          } finally {
+            setLoading(false);
+            setConfirmCfg(null);
+          }
+        },
+      });
+    },
+    [selectedPlaylist?.id]
+  );
 
-  const handleClearOneTimeSchedule = useCallback(async (playlistId) => {
-    if (!window.confirm('Clear the one-time schedule for this playlist?')) return;
-    try {
-      setLoading(true);
-      setError('');
-      const resp = await playlistAPI.clearOneTimeSchedule(playlistId);
-      if (resp?.playlist) {
-        setSelectedPlaylist((p) => (p?.id === playlistId ? { ...p, ...resp.playlist } : p));
-      }
-      fetchPlaylists();
-      fetchPlaylistDetails(playlistId);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to clear schedule');
-    } finally {
-      setLoading(false);
-    }
+  const handleClearOneTimeSchedule = useCallback((playlistId) => {
+    setConfirmCfg({
+      title: 'Clear schedule',
+      message: 'Clear the one-time schedule for this playlist?',
+      confirmLabel: 'Clear',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          setError('');
+          const resp = await playlistAPI.clearOneTimeSchedule(playlistId);
+          if (resp?.playlist) {
+            setSelectedPlaylist((p) => (p?.id === playlistId ? { ...p, ...resp.playlist } : p));
+          }
+          fetchPlaylists();
+          fetchPlaylistDetails(playlistId);
+        } catch (err) {
+          setError(err.response?.data?.error || 'Failed to clear schedule');
+        } finally {
+          setLoading(false);
+          setConfirmCfg(null);
+        }
+      },
+    });
   }, []);
 
   const handleToggleSchedule = useCallback(async (schedule) => {
@@ -606,6 +705,11 @@ function Playlists() {
     }
   }, [selectedPlaylist?.id]);
 
+  const listHiddenClass =
+    isMobile && mobileView === 'detail' ? ' is-hidden-mobile' : '';
+  const detailHiddenClass =
+    isMobile && mobileView === 'list' ? ' is-hidden-mobile' : '';
+
   return (
     <div className="playlists-page">
       <div className="page-header">
@@ -615,7 +719,7 @@ function Playlists() {
             <p>Manage your digital signage playlists</p>
           </div>
           <button 
-            className="create-btn"
+            className="create-btn create-btn-desktop-only"
             onClick={() => setShowCreateModal(true)}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -635,7 +739,7 @@ function Playlists() {
       )}
 
       <div className="playlists-container">
-        <div className="playlists-list">
+        <div className={`playlists-list${listHiddenClass}`}>
           <h2>Your Playlists</h2>
           {loading && !selectedPlaylist ? (
             <div className="loading">Loading playlists...</div>
@@ -652,7 +756,7 @@ function Playlists() {
                 <div
                   key={playlist.id}
                   className={`playlist-card ${selectedPlaylist?.id === playlist.id ? 'active' : ''}`}
-                  onClick={() => fetchPlaylistDetails(playlist.id)}
+                  onClick={() => selectPlaylist(playlist.id)}
                 >
                   <div className="playlist-card-header">
                     <h3>{playlist.name}</h3>
@@ -695,9 +799,24 @@ function Playlists() {
           )}
         </div>
 
-        <div className="playlist-detail">
+        <div className={`playlist-detail${detailHiddenClass}`}>
           {selectedPlaylist ? (
             <>
+              {isMobile && mobileView === 'detail' && (
+                <div className="playlists-mobile-back-bar">
+                  <button
+                    type="button"
+                    className="playlists-mobile-back"
+                    onClick={() => setMobileView('list')}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span>Playlists</span>
+                  </button>
+                </div>
+              )}
+              <div className="playlist-detail-body">
               <div className="detail-header">
                 <div>
                   <h2>{selectedPlaylist.name}</h2>
@@ -820,7 +939,8 @@ function Playlists() {
                     )}
                   </div>
                   <button
-                    className="upload-btn"
+                    type="button"
+                    className="upload-btn upload-btn-desktop-only"
                     onClick={() => setShowUploadModal(true)}
                   >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -922,6 +1042,21 @@ function Playlists() {
                   <p>No items in this playlist. Upload files to get started!</p>
                 </div>
               )}
+              </div>
+              <div className="playlist-detail-upload-bar">
+                <button
+                  type="button"
+                  className="upload-btn upload-btn-mobile-only"
+                  onClick={() => setShowUploadModal(true)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  Upload File
+                </button>
+              </div>
             </>
           ) : (
             <div className="empty-detail">
@@ -1163,6 +1298,16 @@ function Playlists() {
           onDeleteSchedule={handleDeleteSchedule}
         />
       )}
+
+      <ConfirmSheet
+        open={Boolean(confirmCfg)}
+        title={confirmCfg?.title || 'Confirm'}
+        message={confirmCfg?.message || ''}
+        confirmLabel={confirmCfg?.confirmLabel || 'OK'}
+        danger={confirmCfg?.danger}
+        onClose={() => setConfirmCfg(null)}
+        onConfirm={confirmCfg?.onConfirm || (async () => {})}
+      />
     </div>
   );
 }

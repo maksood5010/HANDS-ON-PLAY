@@ -1,0 +1,88 @@
+.mobile-top-bar {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    min-height: calc(56px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  .mobile-top-bar__menu {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 12px;
+    background: #f3f4f6;
+    color: #374151;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+
+  .mobile-top-bar__menu:hover {
+    background: #e5e7eb;
+  }
+
+  .mobile-top-bar__title {
+    flex: 1;
+    margin: 0;
+    min-width: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-top-bar__actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    max-width: 50%;
+  }
+
+  /* Compact icon CTA from pages (e.g. Devices — Add) */
+  .mobile-top-bar-add-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+    color: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+    flex-shrink: 0;
+  }
+
+  .mobile-top-bar-add-btn:active {
+    opacity: 0.92;
+    transform: scale(0.98);
+  }
+}

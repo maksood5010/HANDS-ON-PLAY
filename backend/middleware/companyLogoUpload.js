@@ -56,13 +56,39 @@ const fileFilter = (_req, file, cb) => {
   return cb(new Error("Only image files are allowed"), false);
 };
 
+/** Max logo size in MB (env override). Default 20; clamped 1–50. */
+const rawMb = process.env.COMPANY_LOGO_MAX_MB;
+const parsedMb =
+  rawMb !== undefined && rawMb !== "" ? parseInt(String(rawMb).trim(), 10) : NaN;
+export const COMPANY_LOGO_MAX_MB =
+  Number.isFinite(parsedMb) && parsedMb > 0 ? Math.min(50, Math.max(1, parsedMb)) : 20;
+const maxBytes = COMPANY_LOGO_MAX_MB * 1024 * 1024;
+
 const companyLogoUpload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
+    fileSize: maxBytes,
   },
 });
+
+/**
+ * Use instead of `companyLogoUpload.single("logo")` so LIMIT_FILE_SIZE returns JSON, not a crash.
+ */
+export const uploadCompanyLogo = (req, res, next) => {
+  companyLogoUpload.single("logo")(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: `Company logo must be ${COMPANY_LOGO_MAX_MB} MB or smaller`,
+      });
+    }
+    if (err.message === "Only image files are allowed") {
+      return res.status(400).json({ error: err.message });
+    }
+    return res.status(400).json({ error: err.message || "Upload failed" });
+  });
+};
 
 export default companyLogoUpload;
 

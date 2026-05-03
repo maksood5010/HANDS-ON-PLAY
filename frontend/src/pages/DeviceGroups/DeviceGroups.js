@@ -1,6 +1,9 @@
 import './DeviceGroups.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { deviceGroupAPI, deviceAPI } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { LayoutTopBarActionContext } from '../../components/Layout/LayoutTopBarActionContext';
+import ConfirmSheet from '../../components/common/ConfirmSheet/ConfirmSheet';
 
 function DeviceGroups() {
   const [groups, setGroups] = useState([]);
@@ -13,11 +16,43 @@ function DeviceGroups() {
   const [editGroupName, setEditGroupName] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState([]);
   const [error, setError] = useState('');
+  const [mobileView, setMobileView] = useState('list');
+  const [confirmCfg, setConfirmCfg] = useState(null);
+
+  const isMobile = useIsMobile(1023);
+  const setTopBarAction = useContext(LayoutTopBarActionContext);
 
   useEffect(() => {
     fetchGroups();
     fetchDevices();
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) setMobileView('list');
+  }, [isMobile]);
+
+  useEffect(() => {
+    const set = setTopBarAction;
+    if (typeof set !== 'function') return;
+    if (!isMobile || mobileView !== 'list') {
+      set(null);
+      return;
+    }
+    set(
+      <button
+        type="button"
+        className="mobile-top-bar-add-btn device-groups-top-add"
+        onClick={() => setShowCreateModal(true)}
+        aria-label="Add group"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    );
+    return () => set(null);
+  }, [isMobile, mobileView, setTopBarAction]);
 
   const fetchGroups = async () => {
     try {
@@ -94,16 +129,13 @@ function DeviceGroups() {
     }
   };
 
-  const handleDeleteGroup = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this group? Devices in this group will be moved to "All devices".')) {
-      return;
-    }
-
+  const runDeleteGroup = async (id) => {
     try {
       setLoading(true);
       await deviceGroupAPI.deleteGroup(id);
       if (selectedGroup?.id === id) {
         setSelectedGroup(null);
+        setMobileView('list');
       }
       fetchGroups();
     } catch (err) {
@@ -113,10 +145,30 @@ function DeviceGroups() {
     }
   };
 
+  const requestDeleteGroup = (id) => {
+    setConfirmCfg({
+      title: 'Delete group',
+      message:
+        'Are you sure you want to delete this group? Devices in this group will be moved to "All devices".',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        await runDeleteGroup(id);
+        setConfirmCfg(null);
+      },
+    });
+  };
+
   const selectGroup = async (group) => {
     setSelectedGroup(group);
+    if (isMobile) setMobileView('detail');
     await fetchGroupDetails(group.id);
   };
+
+  const listHiddenClass =
+    isMobile && mobileView === 'detail' ? ' is-hidden-mobile' : '';
+  const detailHiddenClass =
+    isMobile && mobileView === 'list' ? ' is-hidden-mobile' : '';
 
   const openEditModal = () => {
     if (!selectedGroup) return;
@@ -148,7 +200,7 @@ function DeviceGroups() {
             <p>Organize your devices into groups</p>
           </div>
           <button 
-            className="create-btn"
+            className="create-btn create-btn-desktop-only"
             onClick={() => setShowCreateModal(true)}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -168,7 +220,7 @@ function DeviceGroups() {
       )}
 
       <div className="device-groups-container">
-        <div className="device-groups-list">
+        <div className={`device-groups-list${listHiddenClass}`}>
           <h2>Your Groups</h2>
           {loading && !selectedGroup ? (
             <div className="loading">Loading groups...</div>
@@ -206,7 +258,7 @@ function DeviceGroups() {
                         className="delete-btn-small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteGroup(group.id);
+                          requestDeleteGroup(group.id);
                         }}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -243,9 +295,23 @@ function DeviceGroups() {
           )}
         </div>
 
-        <div className="group-detail">
+        <div className={`group-detail${detailHiddenClass}`}>
           {selectedGroup ? (
             <>
+              {isMobile && mobileView === 'detail' && (
+                <div className="group-detail-back-bar">
+                  <button
+                    type="button"
+                    className="group-detail-back"
+                    onClick={() => setMobileView('list')}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span>Groups</span>
+                  </button>
+                </div>
+              )}
               <div className="detail-header">
                 <div className="detail-title-row">
                   <div className="detail-icon">
@@ -340,7 +406,7 @@ function DeviceGroups() {
                     <p>Permanently delete this group. Devices will be moved to "All devices".</p>
                     <button 
                       className="delete-group-btn"
-                      onClick={() => handleDeleteGroup(selectedGroup.id)}
+                      onClick={() => requestDeleteGroup(selectedGroup.id)}
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -373,25 +439,27 @@ function DeviceGroups() {
       {/* Create Group Modal */}
       {showCreateModal && (
         <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-content--stacked" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add New Group</h2>
               <button className="close-btn" onClick={() => setShowCreateModal(false)}>×</button>
             </div>
-            <form onSubmit={handleCreateGroup}>
-              <div className="form-group">
-                <label>Group Name *</label>
-                <input
-                  type="text"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="e.g., Store Locations"
-                  required
-                  autoFocus
-                />
-                <small>Give your group a descriptive name</small>
+            <form onSubmit={handleCreateGroup} className="modal-form-stack">
+              <div className="modal-body-scroll">
+                <div className="form-group">
+                  <label>Group Name *</label>
+                  <input
+                    type="text"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="e.g., Store Locations"
+                    required
+                    autoFocus
+                  />
+                  <small>Give your group a descriptive name</small>
+                </div>
               </div>
-              <div className="modal-actions">
+              <div className="modal-actions modal-actions-footer">
                 <button type="button" className="cancel-btn" onClick={() => setShowCreateModal(false)}>
                   Cancel
                 </button>
@@ -407,50 +475,52 @@ function DeviceGroups() {
       {/* Edit Group Modal */}
       {showEditModal && selectedGroup && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content modal-content-large" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-content-large modal-content--stacked modal-content--edit-group" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Edit Group</h2>
               <button className="close-btn" onClick={() => setShowEditModal(false)}>×</button>
             </div>
-            <form onSubmit={handleUpdateGroup}>
-              <div className="form-group">
-                <label>Group Name *</label>
-                <input
-                  type="text"
-                  value={editGroupName}
-                  onChange={(e) => setEditGroupName(e.target.value)}
-                  placeholder="e.g., Store Locations"
-                  required
-                  autoFocus
-                />
-                <small>Update the group name</small>
-              </div>
-              <div className="form-group">
-                <label>Select Devices</label>
-                <div className="device-checkbox-list">
-                  {devices.length === 0 ? (
-                    <p className="no-devices-text">No devices available</p>
-                  ) : (
-                    devices.map((device) => (
-                      <label key={device.id} className="device-checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedDeviceIds.includes(device.id)}
-                          onChange={() => toggleDeviceSelection(device.id)}
-                        />
-                        <span className="device-checkbox-label">
-                          {device.name}
-                          <span className={`device-checkbox-status ${device.is_online ? 'online' : 'offline'}`}>
-                            {device.is_online ? 'Online' : 'Offline'}
-                          </span>
-                        </span>
-                      </label>
-                    ))
-                  )}
+            <form onSubmit={handleUpdateGroup} className="modal-form-stack">
+              <div className="modal-body-scroll">
+                <div className="form-group">
+                  <label>Group Name *</label>
+                  <input
+                    type="text"
+                    value={editGroupName}
+                    onChange={(e) => setEditGroupName(e.target.value)}
+                    placeholder="e.g., Store Locations"
+                    required
+                    autoFocus
+                  />
+                  <small>Update the group name</small>
                 </div>
-                <small>Select which devices should be in this group</small>
+                <div className="form-group">
+                  <label>Select Devices</label>
+                  <div className="device-checkbox-list">
+                    {devices.length === 0 ? (
+                      <p className="no-devices-text">No devices available</p>
+                    ) : (
+                      devices.map((device) => (
+                        <label key={device.id} className="device-checkbox-item">
+                          <input
+                            type="checkbox"
+                            checked={selectedDeviceIds.includes(device.id)}
+                            onChange={() => toggleDeviceSelection(device.id)}
+                          />
+                          <span className="device-checkbox-label">
+                            {device.name}
+                            <span className={`device-checkbox-status ${device.is_online ? 'online' : 'offline'}`}>
+                              {device.is_online ? 'Online' : 'Offline'}
+                            </span>
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <small>Select which devices should be in this group</small>
+                </div>
               </div>
-              <div className="modal-actions">
+              <div className="modal-actions modal-actions-footer">
                 <button type="button" className="cancel-btn" onClick={() => setShowEditModal(false)}>
                   Cancel
                 </button>
@@ -462,6 +532,16 @@ function DeviceGroups() {
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        open={Boolean(confirmCfg)}
+        title={confirmCfg?.title || 'Confirm'}
+        message={confirmCfg?.message || ''}
+        confirmLabel={confirmCfg?.confirmLabel || 'OK'}
+        danger={confirmCfg?.danger}
+        onClose={() => setConfirmCfg(null)}
+        onConfirm={confirmCfg?.onConfirm || (async () => {})}
+      />
     </div>
   );
 }

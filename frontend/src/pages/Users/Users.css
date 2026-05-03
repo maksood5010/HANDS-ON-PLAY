@@ -13,7 +13,7 @@
 }
 
 .users-card-primary {
-  border-top: 4px solid #8B5CF6;
+  border-top: 4px solid #8b5cf6;
 }
 
 .users-card h2 {
@@ -42,7 +42,7 @@
 .users-form input:focus,
 .users-form select:focus {
   outline: none;
-  border-color: #8B5CF6;
+  border-color: #8b5cf6;
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
   background: #ffffff;
 }
@@ -52,7 +52,7 @@
   border-radius: 12px;
   border: 0;
   cursor: pointer;
-  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
   color: white;
   font-weight: 600;
   box-shadow: 0 6px 18px rgba(139, 92, 246, 0.35);
@@ -71,6 +71,7 @@
   font-weight: 500;
 }
 
+/* Legacy grid table (unused in current Users.jsx — kept for reference / tooling) */
 .users-table {
   width: 100%;
   display: grid;
@@ -109,7 +110,7 @@
 .users-row input:focus,
 .users-row select:focus {
   outline: none;
-  border-color: #8B5CF6;
+  border-color: #8b5cf6;
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
 }
 
@@ -139,7 +140,7 @@
 .users-actions button.danger {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.06) 100%);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #DC2626;
+  color: #dc2626;
 }
 
 .users-actions button.danger:hover {
@@ -152,9 +153,129 @@
   cursor: not-allowed;
 }
 
+.mobile-top-bar-add-btn.users-top-add {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
+}
+
+.users-card-top-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.users-avatar {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
+}
+
+.users-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.users-card-body .group-card-header {
+  margin-bottom: 4px;
+}
+
+.users-card-body h3 {
+  margin: 0 0 8px;
+}
+
+.users-card-icon-desktop {
+  display: flex;
+}
+
+.users-card-actions {
+  display: none;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+  gap: 10px;
+}
+
+.users-card-action-btn {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.users-card-action-btn--primary {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3);
+}
+
+.users-card-action-btn--danger {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.06) 100%);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+}
+
+.users-card-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.users-modal-form .form-group input,
+.users-modal-form .form-group select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 @media (max-width: 1100px) {
   .users-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 641px) {
+  .users-list-card .users-avatar {
+    display: none;
+  }
+
+  .users-list-card .users-card-icon-desktop {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .users-page .users-list-card {
+    padding-bottom: 16px;
+  }
+
+  .users-list-card .users-card-icon-desktop {
+    display: none;
+  }
+
+  .users-list-card .users-delete-corner {
+    display: none;
+  }
+
+  .users-card-actions {
+    display: flex;
+  }
+
+  .users-modal-form {
+    padding-bottom: 8px;
   }
 }
 
@@ -164,7 +285,7 @@
   }
 
   .users-row {
-    grid-template-columns: 70px 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-auto-rows: auto;
   }
 
@@ -172,4 +293,3 @@
     justify-content: flex-start;
   }
 }
-

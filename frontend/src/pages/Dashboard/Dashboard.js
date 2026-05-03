@@ -36,6 +36,12 @@ const ArrowIcon = () => (
   </svg>
 );
 
+const ChevronRightIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
 const SmallPlaylistIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="5 3 19 12 5 21 5 3" />
@@ -260,11 +266,15 @@ function Dashboard() {
                   </div>
                   <div className="item-details">
                     <div className="playlist-name">{playlist.name}</div>
-                   
                   </div>
                 </div>
-                <div className={`playlist-status ${playlist.status}`}>
-                  {playlist.status}
+                <div className="playlist-item-end">
+                  <div className={`playlist-status ${playlist.status}`}>
+                    {playlist.status}
+                  </div>
+                  <span className="list-item-chevron">
+                    <ChevronRightIcon />
+                  </span>
                 </div>
               </div>
             ))}
@@ -298,9 +308,14 @@ function Dashboard() {
                     <div className="device-playlist">{device.playlist}</div>
                   </div>
                 </div>
-                <div className={`device-status ${device.status}`}>
-                  <span className="status-dot"></span>
-                  {device.status}
+                <div className="device-item-end">
+                  <div className={`device-status ${device.status}`}>
+                    <span className="status-dot"></span>
+                    {device.status}
+                  </div>
+                  <span className="list-item-chevron">
+                    <ChevronRightIcon />
+                  </span>
                 </div>
               </div>
             ))}
@@ -339,9 +354,9 @@ function Dashboard() {
                     </div>
                   </div>
                 </div>
-                {/* <div className={`schedule-status ${schedule.status}`}>
-                  {schedule.status}
-                </div> */}
+                <span className="list-item-chevron">
+                  <ChevronRightIcon />
+                </span>
               </div>
             ))}
           </div>

@@ -9,7 +9,8 @@
   color: #64748b;
 }
 
-.companies-page .modal-content {
+/* Non-stacked modals only (e.g. admin creds); add/edit use stacked + body scroll */
+.companies-page .modal-content:not(.modal-content--stacked) {
   max-height: 85vh;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -23,8 +24,96 @@
   gap: 18px;
 }
 
+.companies-form-grid .form-group {
+  margin-bottom: 0;
+}
+
 .companies-full {
   grid-column: 1 / -1;
+}
+
+.companies-modal-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.companies-modal-error {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 28px 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.06) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+.companies-modal-error__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.companies-modal-error__dismiss {
+  flex-shrink: 0;
+  margin: -4px -6px -4px 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.companies-modal-error__dismiss:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+@media (max-width: 640px) {
+  .companies-modal-error {
+    margin-left: 20px;
+    margin-right: 20px;
+  }
+}
+
+.companies-create-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.companies-btn-spinner {
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: companies-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes companies-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.companies-company-modal .close-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* Reduce scroll jank from expensive blur on this modal */
@@ -35,6 +124,187 @@
 @media (max-width: 768px) {
   .companies-form-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .companies-page .modal-body-scroll .companies-form-grid {
+    gap: 14px;
+  }
+
+  .companies-logo-field {
+    align-items: stretch;
+  }
+
+  .companies-logo-upload {
+    align-self: stretch;
+  }
+
+  .companies-logo-upload__btn {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+.mobile-top-bar-add-btn.companies-top-add {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
+}
+
+.companies-field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.companies-logo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.companies-logo-upload {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.companies-logo-upload__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 2px dashed #cbd5e1;
+  color: #475569;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.companies-logo-picked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.companies-logo-picked__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.companies-logo-remove {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.companies-admin-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.companies-admin-creds-body {
+  padding: 0 0 8px;
+}
+
+.companies-creds-block {
+  margin-top: 16px;
+}
+
+.companies-creds-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.companies-creds-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.companies-creds-value {
+  display: block;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-radius: 10px;
+  font-size: 15px;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  word-break: break-all;
+}
+
+.companies-creds-row--password .companies-creds-password {
+  margin: 0;
+  padding: 12px 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  max-height: 180px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid #1e293b;
+}
+
+.companies-copy-btn {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-weight: 600;
+  color: #7c3aed;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.companies-admin-creds-modal .modal-actions .submit-btn {
+  width: 100%;
+}
+
+@media (min-width: 641px) {
+  .companies-creds-row {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .companies-copy-btn {
+    flex-shrink: 0;
+    min-width: 100px;
+    align-self: stretch;
+  }
+
+  .companies-admin-creds-modal .modal-actions .submit-btn {
+    width: auto;
   }
 }
 

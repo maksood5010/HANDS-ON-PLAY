@@ -1,6 +1,25 @@
 import axios from "axios";
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5041/api";
+// In production (same host serves UI + API): `/api` keeps requests same-origin.
+// In development: CRA's package.json proxy often fails for POST from LAN IPs ("Cannot POST /api/login").
+// So we call the API directly on port 5041 using the same hostname as the page (localhost or 192.168.x.x).
+// Override with REACT_APP_API_URL when needed.
+const resolveApiBaseUrl = () => {
+  const raw = process.env.REACT_APP_API_URL;
+  if (raw != null && String(raw).trim()) return String(raw).trim().replace(/\/+$/, "");
+
+  if (
+    process.env.NODE_ENV === "development" &&
+    typeof window !== "undefined" &&
+    window.location?.hostname
+  ) {
+    return `http://${window.location.hostname}:5041/api`;
+  }
+
+  return "/api";
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // Upload URL base should NOT include `/api`.
 // In many deployments REACT_APP_API_URL is set to ".../api", which would incorrectly
@@ -9,9 +28,25 @@ const deriveUploadBaseUrl = () => {
   const explicit = process.env.REACT_APP_UPLOAD_URL;
   if (explicit && String(explicit).trim()) return String(explicit).replace(/\/+$/, "");
 
-  const apiUrl = String(process.env.REACT_APP_API_URL || "http://localhost:5041/api").trim();
-  // Strip trailing `/api` (or `/api/`) if present.
-  return apiUrl.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
+  const envApi = process.env.REACT_APP_API_URL;
+  if (envApi != null && String(envApi).trim()) {
+    const apiUrl = String(envApi).trim();
+    return apiUrl.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
+  }
+
+  if (
+    process.env.NODE_ENV === "development" &&
+    typeof window !== "undefined" &&
+    window.location?.hostname
+  ) {
+    return `http://${window.location.hostname}:5041`;
+  }
+
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, "");
+  }
+
+  return "http://localhost:5041";
 };
 
 const UPLOAD_BASE_URL = deriveUploadBaseUrl();

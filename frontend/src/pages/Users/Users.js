@@ -1,7 +1,12 @@
 import "./Users.css";
-import { useEffect, useMemo, useState } from "react";
+import "../DeviceGroups/DeviceGroups.css";
+import { useEffect, useContext, useId, useMemo, useState } from "react";
 import { userAPI } from "../../services/api";
 import PasswordInput from "../../components/common/PasswordInput";
+import Sheet from "../../components/common/Sheet/Sheet";
+import ConfirmSheet from "../../components/common/ConfirmSheet/ConfirmSheet";
+import { useIsMobile } from "../../hooks/useIsMobile";
+import { LayoutTopBarActionContext } from "../../components/Layout/LayoutTopBarActionContext";
 
 const roles = ["company_admin", "company_user"];
 
@@ -10,6 +15,12 @@ const roleLabel = (role) => {
   if (role === "company_admin") return "Admin";
   if (role === "platform_super_admin") return "Platform Super Admin";
   return role || "User";
+};
+
+const userInitial = (username) => {
+  const s = String(username || "").trim();
+  if (!s) return "?";
+  return s.slice(0, 1).toUpperCase();
 };
 
 function Users() {
@@ -24,13 +35,23 @@ function Users() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
-  const [newRole, setNewRole] = useState("Customer");
+  const [newRole, setNewRole] = useState(roles[0] || "company_user");
 
   const [editId, setEditId] = useState(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editPasswordConfirm, setEditPasswordConfirm] = useState("");
-  const [editRole, setEditRole] = useState("Customer");
+  const [editRole, setEditRole] = useState(roles[0] || "company_user");
+
+  const [mobileView, setMobileView] = useState("list");
+  const [confirmCfg, setConfirmCfg] = useState(null);
+
+  const createFormId = useId();
+  const editFormId = useId();
+
+  const isMobile = useIsMobile(1023);
+  const useSheetModals = useIsMobile(640);
+  const setTopBarAction = useContext(LayoutTopBarActionContext);
 
   const me = useMemo(() => {
     const raw = localStorage.getItem("user");
@@ -66,6 +87,38 @@ function Users() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!isMobile) setMobileView("list");
+  }, [isMobile]);
+
+  useEffect(() => {
+    const set = setTopBarAction;
+    if (typeof set !== "function") return;
+    if (!isMobile || mobileView !== "list") {
+      set(null);
+      return;
+    }
+    set(
+      <button
+        type="button"
+        className="mobile-top-bar-add-btn users-top-add"
+        onClick={() => setShowCreateModal(true)}
+        aria-label="Add user"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    );
+    return () => set(null);
+  }, [isMobile, mobileView, setTopBarAction]);
+
+  const selectUser = (u) => {
+    setSelectedUser(u);
+    if (isMobile) setMobileView("detail");
+  };
+
   const startEdit = (u) => {
     setEditId(u.id);
     setEditUsername(u.username);
@@ -80,7 +133,7 @@ function Users() {
     setEditUsername("");
     setEditPassword("");
     setEditPasswordConfirm("");
-    setEditRole("Customer");
+    setEditRole(roles[0] || "company_user");
     setShowEditModal(false);
   };
 
@@ -92,7 +145,7 @@ function Users() {
       setNewUsername("");
       setNewPassword("");
       setNewPasswordConfirm("");
-      setNewRole("Customer");
+      setNewRole(roles[0] || "company_user");
       setShowCreateModal(false);
       await loadUsers();
     } catch (err) {
@@ -117,18 +170,165 @@ function Users() {
     }
   };
 
-  const handleDelete = async (u) => {
+  const runDeleteUser = async (u) => {
     setError("");
-    const ok = window.confirm(`Delete user "${u.username}"?`);
-    if (!ok) return;
-
     try {
       await userAPI.deleteUser(u.id);
+      if (selectedUser?.id === u.id) {
+        setSelectedUser(null);
+        setMobileView("list");
+      }
       await loadUsers();
     } catch (err) {
       setError(err.response?.data?.error || "Failed to delete user");
     }
   };
+
+  const requestDeleteUser = (u) => {
+    setConfirmCfg({
+      title: "Delete user",
+      message: `Delete user "${u.username}"? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+      onConfirm: async () => {
+        await runDeleteUser(u);
+        setConfirmCfg(null);
+      },
+    });
+  };
+
+  const listHiddenClass = isMobile && mobileView === "detail" ? " is-hidden-mobile" : "";
+  const detailHiddenClass = isMobile && mobileView === "list" ? " is-hidden-mobile" : "";
+
+  const createFooter = (
+    <div className="modal-actions users-modal-footer">
+      <button type="button" className="cancel-btn" onClick={() => setShowCreateModal(false)}>
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form={createFormId}
+        className="submit-btn"
+        disabled={!newPassword || !newPasswordConfirm || newPasswordConfirm !== newPassword}
+      >
+        Create User
+      </button>
+    </div>
+  );
+
+  const editFooter = (
+    <div className="modal-actions users-modal-footer">
+      <button type="button" className="cancel-btn" onClick={cancelEdit}>
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form={editFormId}
+        className="submit-btn"
+        disabled={Boolean(editPassword) && (!editPasswordConfirm || editPasswordConfirm !== editPassword)}
+      >
+        Save Changes
+      </button>
+    </div>
+  );
+
+  const createFormFields = (
+    <>
+      <div className="form-group">
+        <label>Username *</label>
+        <input
+          type="text"
+          value={newUsername}
+          onChange={(e) => setNewUsername(e.target.value)}
+          placeholder="e.g., johndoe"
+          required
+          autoFocus={!useSheetModals}
+          autoComplete="username"
+        />
+        <small>Enter a unique username for this user</small>
+      </div>
+      <div className="form-group">
+        <label>Password *</label>
+        <PasswordInput
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="At least 6 characters"
+          required
+          autoComplete="new-password"
+        />
+        <small>This password will be hashed and stored securely</small>
+      </div>
+      <div className="form-group">
+        <label>Retype password *</label>
+        <PasswordInput
+          value={newPasswordConfirm}
+          onChange={(e) => setNewPasswordConfirm(e.target.value)}
+          placeholder="Retype password"
+          required
+          autoComplete="new-password"
+        />
+        {newPasswordConfirm && newPasswordConfirm !== newPassword && (
+          <small style={{ color: "#dc2626" }}>Passwords do not match</small>
+        )}
+      </div>
+      <div className="form-group">
+        <label>Role *</label>
+        <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {roleLabel(r)}
+            </option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
+
+  const editFormFields = (
+    <>
+      <div className="form-group">
+        <label>Username *</label>
+        <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value)} required />
+        <small>Update the username</small>
+      </div>
+      <div className="form-group">
+        <label>Role *</label>
+        <select value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              {roleLabel(r)}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="form-group">
+        <label>New Password (optional)</label>
+        <PasswordInput
+          value={editPassword}
+          onChange={(e) => {
+            setEditPassword(e.target.value);
+            if (!e.target.value) setEditPasswordConfirm("");
+          }}
+          placeholder="Leave blank to keep current password"
+          autoComplete="new-password"
+        />
+      </div>
+      {Boolean(editPassword) && (
+        <div className="form-group">
+          <label>Retype new password</label>
+          <PasswordInput
+            value={editPasswordConfirm}
+            onChange={(e) => setEditPasswordConfirm(e.target.value)}
+            placeholder="Retype new password"
+            autoComplete="new-password"
+          />
+          {editPasswordConfirm && editPasswordConfirm !== editPassword && (
+            <small style={{ color: "#dc2626" }}>Passwords do not match</small>
+          )}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className="device-groups-page users-page">
@@ -138,11 +338,7 @@ function Users() {
             <h1>Users</h1>
             <p>Company user management</p>
           </div>
-          <button
-            className="create-btn"
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-          >
+          <button className="create-btn create-btn-desktop-only" type="button" onClick={() => setShowCreateModal(true)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -155,12 +351,12 @@ function Users() {
       {error && (
         <div className="error-banner">
           {error}
-          <button onClick={() => setError("")}>×</button>
+          <button type="button" onClick={() => setError("")}>×</button>
         </div>
       )}
 
       <div className="device-groups-container users-layout">
-        <div className="device-groups-list">
+        <div className={`device-groups-list${listHiddenClass}`}>
           <h2>Your Users</h2>
           {loading ? (
             <div className="loading">Loading users...</div>
@@ -183,50 +379,76 @@ function Users() {
                 return (
                   <div
                     key={u.id}
-                    className={`group-card ${selectedUser?.id === u.id ? "active" : ""}`}
-                    onClick={() => setSelectedUser(u)}
+                    className={`group-card users-list-card ${selectedUser?.id === u.id ? "active" : ""}`}
+                    onClick={() => selectUser(u)}
                   >
-                    <div className="group-card-header">
-                      <div className="group-icon-wrapper">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                          <circle cx="9" cy="7" r="4"></circle>
-                          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                        </svg>
+                    <div className="users-card-top-row">
+                      <div className="users-avatar" aria-hidden>
+                        {userInitial(u.username)}
                       </div>
-                      <button
-                        className="delete-btn-small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isMe) {
-                            handleDelete(u);
-                          }
-                        }}
-                        disabled={isMe}
-                        title={isMe ? "You cannot delete your own account" : "Delete user"}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
-                      </button>
+                      <div className="users-card-body">
+                        <div className="group-card-header">
+                          <div className="group-icon-wrapper users-card-icon-desktop">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                              <circle cx="9" cy="7" r="4"></circle>
+                              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                          </div>
+                          <button
+                            className="delete-btn-small users-delete-corner"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isMe) requestDeleteUser(u);
+                            }}
+                            disabled={isMe}
+                            title={isMe ? "You cannot delete your own account" : "Delete user"}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                          </button>
+                        </div>
+                        <h3>{u.username}</h3>
+                        <div className="group-meta">
+                          <span className="device-count-badge">{roleLabel(u.role)}</span>
+                          {u.company_name && (
+                            <>
+                              <span className="meta-separator">•</span>
+                              <span className="global-badge">{u.company_name}</span>
+                            </>
+                          )}
+                          {isMe && (
+                            <>
+                              <span className="meta-separator">•</span>
+                              <span className="global-badge">You</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <h3>{u.username}</h3>
-                    <div className="group-meta">
-                      <span className="device-count-badge">{roleLabel(u.role)}</span>
-                      {u.company_name && (
-                        <>
-                          <span className="meta-separator">•</span>
-                          <span className="global-badge">{u.company_name}</span>
-                        </>
-                      )}
-                      {isMe && (
-                        <>
-                          <span className="meta-separator">•</span>
-                          <span className="global-badge">You</span>
-                        </>
-                      )}
+                    <div className="users-card-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="users-card-action-btn users-card-action-btn--primary"
+                        onClick={() => {
+                          selectUser(u);
+                          startEdit(u);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="users-card-action-btn users-card-action-btn--danger"
+                        disabled={isMe}
+                        onClick={() => requestDeleteUser(u)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 );
@@ -235,9 +457,19 @@ function Users() {
           )}
         </div>
 
-        <div className="group-detail">
+        <div className={`group-detail${detailHiddenClass}`}>
           {selectedUser ? (
             <>
+              {isMobile && mobileView === "detail" && (
+                <div className="group-detail-back-bar">
+                  <button type="button" className="group-detail-back" onClick={() => setMobileView("list")}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span>Users</span>
+                  </button>
+                </div>
+              )}
               <div className="detail-header">
                 <div className="detail-title-row">
                   <div className="detail-icon">
@@ -250,9 +482,7 @@ function Users() {
                   </div>
                   <div>
                     <h2>{selectedUser.username}</h2>
-                    <span className="global-indicator">
-                      Role: {roleLabel(selectedUser.role)}
-                    </span>
+                    <span className="global-indicator">Role: {roleLabel(selectedUser.role)}</span>
                   </div>
                 </div>
               </div>
@@ -275,16 +505,12 @@ function Users() {
                     </div>
                     <div className="info-item">
                       <span className="info-label">Company</span>
-                      <span className="info-value">
-                        {selectedUser.company_name || selectedUser.company_id || "—"}
-                      </span>
+                      <span className="info-value">{selectedUser.company_name || selectedUser.company_id || "—"}</span>
                     </div>
                     {selectedUser.created_at && (
                       <div className="info-item">
                         <span className="info-label">Created</span>
-                        <span className="info-value">
-                          {new Date(selectedUser.created_at).toLocaleDateString()}
-                        </span>
+                        <span className="info-value">{new Date(selectedUser.created_at).toLocaleDateString()}</span>
                       </div>
                     )}
                   </div>
@@ -293,11 +519,7 @@ function Users() {
                 <div className="detail-section">
                   <h3>Actions</h3>
                   <p className="section-description">Edit this user or change their password.</p>
-                  <button
-                    className="edit-group-btn"
-                    type="button"
-                    onClick={() => startEdit(selectedUser)}
-                  >
+                  <button className="edit-group-btn" type="button" onClick={() => startEdit(selectedUser)}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -312,7 +534,7 @@ function Users() {
                   <button
                     className="delete-group-btn"
                     type="button"
-                    onClick={() => handleDelete(selectedUser)}
+                    onClick={() => requestDeleteUser(selectedUser)}
                     disabled={me?.id === selectedUser.id}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -342,165 +564,102 @@ function Users() {
         </div>
       </div>
 
-      {/* Create User Modal */}
-      {showCreateModal && (
-        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Add New User</h2>
-              <button className="close-btn" onClick={() => setShowCreateModal(false)}>×</button>
-            </div>
-            <form onSubmit={handleCreate}>
-              <div className="form-group">
-                <label>Username *</label>
-                <input
-                  type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="e.g., johndoe"
-                  required
-                  autoFocus
-                />
-                <small>Enter a unique username for this user</small>
-              </div>
-              <div className="form-group">
-                <label>Password *</label>
-                <PasswordInput
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
-                  required
-                  autoComplete="new-password"
-                />
-                <small>This password will be hashed and stored securely</small>
-              </div>
-              <div className="form-group">
-                <label>Retype password *</label>
-                <PasswordInput
-                  value={newPasswordConfirm}
-                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                  placeholder="Retype password"
-                  required
-                  autoComplete="new-password"
-                />
-                {newPasswordConfirm && newPasswordConfirm !== newPassword && (
-                  <small style={{ color: "#dc2626" }}>Passwords do not match</small>
-                )}
-              </div>
-              <div className="form-group">
-                <label>Role *</label>
-                <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                  {roles.map((r) => (
-                    <option key={r} value={r}>
-                      {roleLabel(r)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="cancel-btn"
-                  onClick={() => setShowCreateModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="submit-btn"
-                  disabled={!newPassword || !newPasswordConfirm || newPasswordConfirm !== newPassword}
-                >
-                  Create User
-                </button>
-              </div>
+      {showCreateModal &&
+        (useSheetModals ? (
+          <Sheet
+            open
+            title="Add New User"
+            onClose={() => setShowCreateModal(false)}
+            footer={createFooter}
+            maxWidth="520px"
+          >
+            <form id={createFormId} className="users-modal-form" onSubmit={handleCreate}>
+              {createFormFields}
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit User Modal */}
-      {showEditModal && selectedUser && (
-        <div className="modal-overlay" onClick={cancelEdit}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Edit User</h2>
-              <button className="close-btn" onClick={cancelEdit}>×</button>
+          </Sheet>
+        ) : (
+          <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Add New User</h2>
+                <button type="button" className="close-btn" onClick={() => setShowCreateModal(false)}>×</button>
+              </div>
+              <form onSubmit={handleCreate}>
+                {createFormFields}
+                <div className="modal-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setShowCreateModal(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="submit-btn"
+                    disabled={!newPassword || !newPasswordConfirm || newPasswordConfirm !== newPassword}
+                  >
+                    Create User
+                  </button>
+                </div>
+              </form>
             </div>
+          </div>
+        ))}
+
+      {showEditModal &&
+        selectedUser &&
+        (useSheetModals ? (
+          <Sheet open title="Edit User" onClose={cancelEdit} footer={editFooter} maxWidth="520px">
             <form
+              id={editFormId}
+              className="users-modal-form"
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSave();
               }}
             >
-              <div className="form-group">
-                <label>Username *</label>
-                <input
-                  type="text"
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  required
-                />
-                <small>Update the username</small>
-              </div>
-              <div className="form-group">
-                <label>Role *</label>
-                <select value={editRole} onChange={(e) => setEditRole(e.target.value)}>
-                  {roles.map((r) => (
-                    <option key={r} value={r}>
-                      {roleLabel(r)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>New Password (optional)</label>
-                <PasswordInput
-                  value={editPassword}
-                  onChange={(e) => {
-                    setEditPassword(e.target.value);
-                    if (!e.target.value) setEditPasswordConfirm("");
-                  }}
-                  placeholder="Leave blank to keep current password"
-                  autoComplete="new-password"
-                />
-              </div>
-              {Boolean(editPassword) && (
-                <div className="form-group">
-                  <label>Retype new password</label>
-                  <PasswordInput
-                    value={editPasswordConfirm}
-                    onChange={(e) => setEditPasswordConfirm(e.target.value)}
-                    placeholder="Retype new password"
-                    autoComplete="new-password"
-                  />
-                  {editPasswordConfirm && editPasswordConfirm !== editPassword && (
-                    <small style={{ color: "#dc2626" }}>Passwords do not match</small>
-                  )}
-                </div>
-              )}
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="cancel-btn"
-                  onClick={cancelEdit}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="submit-btn"
-                  disabled={Boolean(editPassword) && (!editPasswordConfirm || editPasswordConfirm !== editPassword)}
-                >
-                  Save Changes
-                </button>
-              </div>
+              {editFormFields}
             </form>
+          </Sheet>
+        ) : (
+          <div className="modal-overlay" onClick={cancelEdit}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Edit User</h2>
+                <button type="button" className="close-btn" onClick={cancelEdit}>×</button>
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSave();
+                }}
+              >
+                {editFormFields}
+                <div className="modal-actions">
+                  <button type="button" className="cancel-btn" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="submit-btn"
+                    disabled={Boolean(editPassword) && (!editPasswordConfirm || editPasswordConfirm !== editPassword)}
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        ))}
+
+      <ConfirmSheet
+        open={Boolean(confirmCfg)}
+        title={confirmCfg?.title || "Confirm"}
+        message={confirmCfg?.message || ""}
+        confirmLabel={confirmCfg?.confirmLabel || "OK"}
+        danger={confirmCfg?.danger}
+        onClose={() => setConfirmCfg(null)}
+        onConfirm={confirmCfg?.onConfirm || (async () => {})}
+      />
     </div>
   );
 }
 
 export default Users;
-
