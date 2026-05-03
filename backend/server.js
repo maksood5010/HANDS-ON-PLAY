@@ -69,8 +69,8 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/build", "index.html"));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on http://localhost:${PORT} (all interfaces)`);
   try {
     startScheduledPlaylistPushJob({
       intervalMs: Number(process.env.SCHEDULE_PUSH_POLL_MS || 5000),

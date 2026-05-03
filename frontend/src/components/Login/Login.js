@@ -2,6 +2,7 @@ import './Login.css';
 import { useState } from "react";
 import { authAPI } from "../../services/api";
 import PasswordInput from "../common/PasswordInput";
+import logoImage from "../../assets/Logo.png";
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
@@ -36,11 +37,16 @@ function Login({ onLoginSuccess }) {
       {/* Left Panel */}
       <div className="login-left-panel">
         <div className="left-panel-content">
-          <h1 className="brand-title">Digital Signage</h1>
-          <p className="brand-subtitle">
-            The ultimate platform for managing your displays everywhere
-          </p>
-          
+          <div className="brand-strip-mobile">
+            <img src={logoImage} alt="HANDS-ON INNOVATIONS" className="brand-logo-mobile" />
+            <span className="brand-tagline-mobile">Digital Signage</span>
+          </div>
+          <div className="brand-desktop">
+            <h1 className="brand-title">Digital Signage</h1>
+            <p className="brand-subtitle">
+              The ultimate platform for managing your displays everywhere
+            </p>
+          </div>
         </div>
         
         {/* Decorative curves */}
@@ -69,11 +75,13 @@ function Login({ onLoginSuccess }) {
                 <input
                   type="text"
                   id="username"
+                  name="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Username or Email Address"
                   required
                   autoComplete="username"
+                  inputMode="email"
                   className="pill-input"
                 />
               </div>
@@ -81,6 +89,7 @@ function Login({ onLoginSuccess }) {
             <div className="form-group">
               <PasswordInput
                 id="password"
+                name="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
@@ -93,7 +102,11 @@ function Login({ onLoginSuccess }) {
                 }
               />
             </div>
-            {error && <div className="error-message">{error}</div>}
+            {error && (
+              <div className="error-message" role="alert">
+                {error}
+              </div>
+            )}
             
             <button type="submit" disabled={loading} className="login-button-pill">
               {loading ? <span className="loader"></span> : "Login"}

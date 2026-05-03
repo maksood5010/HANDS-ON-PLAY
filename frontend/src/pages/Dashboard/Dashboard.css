@@ -429,6 +429,26 @@
   min-width: 0;
 }
 
+.playlist-item-end,
+.device-item-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.list-item-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.schedule-item .list-item-chevron {
+  margin-left: 8px;
+}
+
 .playlist-name,
 .device-name,
 .schedule-playlist {
@@ -600,5 +620,128 @@
   
   .stat-card-inner {
     padding: 20px;
+  }
+}
+
+/* Phones: tighter dashboard + list rows as vertical stack (no horizontal scroll) */
+@media (max-width: 640px) {
+  .dashboard {
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .dashboard-header {
+    margin-bottom: 20px;
+  }
+
+  .dashboard-header h1 {
+    font-size: 24px;
+  }
+
+  .dashboard-header p {
+    font-size: 14px;
+  }
+
+  .stat-card-inner {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+  }
+
+  .stat-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    letter-spacing: -1px;
+  }
+
+  .stats-grid {
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .dashboard-content {
+    gap: 16px;
+  }
+
+  .section-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 20px 16px 0;
+    margin-bottom: 16px;
+  }
+
+  .playlist-list,
+  .device-list,
+  .schedule-list {
+    flex-direction: column;
+    gap: 10px;
+    overflow-x: visible;
+    max-width: 100%;
+    padding: 0 12px 16px;
+  }
+
+  .playlist-item,
+  .device-item,
+  .schedule-item {
+    min-height: 56px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+  }
+
+  .playlist-name,
+  .device-name,
+  .schedule-playlist {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+  }
+}
+
+/* Touch devices: disable hover lift / slide that sticks after tap */
+@media (hover: none) {
+  .stat-card:hover {
+    transform: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  }
+
+  .playlist-item:hover,
+  .device-item:hover,
+  .schedule-item:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: #f1f5f9;
+    background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
+  }
+
+  .playlist-item:hover::before,
+  .device-item:hover::before,
+  .schedule-item:hover::before {
+    opacity: 0;
+  }
+
+  .content-section:hover {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  }
+
+  .view-all-btn:hover {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-color: #e2e8f0;
+    color: #64748b;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .view-all-btn:hover svg {
+    transform: none;
   }
 }

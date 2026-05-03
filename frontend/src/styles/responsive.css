@@ -1,0 +1,20 @@
+/**
+ * Global responsive design tokens and utilities (mobile-first foundation).
+ * Imported from index.css before other global styles.
+ */
+:root {
+  --bp-sm: 640px;
+  --bp-md: 1023px;
+  --page-pad-mobile: 16px;
+  --page-pad-desktop: 32px 40px;
+  --touch-target: 44px;
+}
+
+.safe-area-pad-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-pad-inline {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

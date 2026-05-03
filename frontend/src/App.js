@@ -1,4 +1,5 @@
 import './styles/App.css';
+import './styles/responsive-modals.css';
 import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./components/Login";

@@ -1,6 +1,9 @@
 import './Devices.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { deviceAPI, deviceGroupAPI } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { LayoutTopBarActionContext } from '../../components/Layout/LayoutTopBarActionContext';
+import ConfirmSheet from '../../components/common/ConfirmSheet/ConfirmSheet';
 
 function Devices() {
   const [devices, setDevices] = useState([]);
@@ -13,11 +16,43 @@ function Devices() {
   const [error, setError] = useState('');
   const [copiedKey, setCopiedKey] = useState(false);
   const [showDeviceKey, setShowDeviceKey] = useState(false);
+  const [mobileView, setMobileView] = useState('list');
+  const [confirmCfg, setConfirmCfg] = useState(null);
+
+  const isMobile = useIsMobile(1023);
+  const setTopBarAction = useContext(LayoutTopBarActionContext);
 
   useEffect(() => {
     fetchDevices();
     fetchGroups();
   }, []);
+
+  useEffect(() => {
+    if (!isMobile) setMobileView('list');
+  }, [isMobile]);
+
+  useEffect(() => {
+    const set = setTopBarAction;
+    if (typeof set !== 'function') return;
+    if (!isMobile || mobileView !== 'list') {
+      set(null);
+      return;
+    }
+    set(
+      <button
+        type="button"
+        className="mobile-top-bar-add-btn"
+        onClick={() => setShowCreateModal(true)}
+        aria-label="Add device"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    );
+    return () => set(null);
+  }, [isMobile, mobileView, setTopBarAction]);
 
   const fetchDevices = async () => {
     try {
@@ -67,6 +102,7 @@ function Devices() {
       // Select the newly created device to show the key
       setSelectedDevice(response.device);
       setShowDeviceKey(true);
+      if (isMobile) setMobileView('detail');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create device');
     } finally {
@@ -74,16 +110,13 @@ function Devices() {
     }
   };
 
-  const handleDeleteDevice = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this device?')) {
-      return;
-    }
-
+  const runDeleteDevice = async (id) => {
     try {
       setLoading(true);
       await deviceAPI.deleteDevice(id);
       if (selectedDevice?.id === id) {
         setSelectedDevice(null);
+        setMobileView('list');
       }
       fetchDevices();
     } catch (err) {
@@ -91,6 +124,19 @@ function Devices() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const requestDeleteDevice = (id) => {
+    setConfirmCfg({
+      title: 'Delete device',
+      message: 'Are you sure you want to delete this device?',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        await runDeleteDevice(id);
+        setConfirmCfg(null);
+      },
+    });
   };
 
   const handleCopyDeviceKey = async () => {
@@ -109,7 +155,13 @@ function Devices() {
     setSelectedDevice(device);
     setShowDeviceKey(false);
     setCopiedKey(false);
+    if (isMobile) setMobileView('detail');
   };
+
+  const listHiddenClass =
+    isMobile && mobileView === 'detail' ? ' is-hidden-mobile' : '';
+  const detailHiddenClass =
+    isMobile && mobileView === 'list' ? ' is-hidden-mobile' : '';
 
   const maskDeviceKey = (key) => {
     if (!key) return '';
@@ -125,7 +177,7 @@ function Devices() {
             <p>Manage your digital signage devices</p>
           </div>
           <button 
-            className="create-btn"
+            className="create-btn create-btn-desktop-only"
             onClick={() => setShowCreateModal(true)}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -145,7 +197,7 @@ function Devices() {
       )}
 
       <div className="devices-container">
-        <div className="devices-list">
+        <div className={`devices-list${listHiddenClass}`}>
           <h2>Your Devices</h2>
           {loading && !selectedDevice ? (
             <div className="loading">Loading devices...</div>
@@ -180,7 +232,7 @@ function Devices() {
                       className="delete-btn-small"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteDevice(device.id);
+                        requestDeleteDevice(device.id);
                       }}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -214,9 +266,23 @@ function Devices() {
           )}
         </div>
 
-        <div className="device-detail">
+        <div className={`device-detail${detailHiddenClass}`}>
           {selectedDevice ? (
             <>
+              {isMobile && mobileView === 'detail' && (
+                <div className="devices-mobile-back-bar">
+                  <button
+                    type="button"
+                    className="devices-mobile-back"
+                    onClick={() => setMobileView('list')}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    <span>Devices</span>
+                  </button>
+                </div>
+              )}
               <div className="detail-header">
                 <div className="detail-title-row">
                   <div className="detail-icon">
@@ -314,7 +380,7 @@ function Devices() {
                   <p>Permanently delete this device and remove it from your account.</p>
                   <button 
                     className="delete-device-btn"
-                    onClick={() => handleDeleteDevice(selectedDevice.id)}
+                    onClick={() => requestDeleteDevice(selectedDevice.id)}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="3 6 5 6 21 6"></polyline>
@@ -392,6 +458,16 @@ function Devices() {
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        open={Boolean(confirmCfg)}
+        title={confirmCfg?.title || 'Confirm'}
+        message={confirmCfg?.message || ''}
+        confirmLabel={confirmCfg?.confirmLabel || 'OK'}
+        danger={confirmCfg?.danger}
+        onClose={() => setConfirmCfg(null)}
+        onConfirm={confirmCfg?.onConfirm || (async () => {})}
+      />
     </div>
   );
 }

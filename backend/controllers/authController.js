@@ -1,6 +1,24 @@
 import bcrypt from "bcryptjs";
 import { findUserByUsername } from "../models/userModel.js";
 
+const isDatabaseConnectionError = (err) => {
+  if (!err) return false;
+  const code = err.code;
+  if (
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    code === "ECONNRESET" ||
+    code === "57P03"
+  ) {
+    return true;
+  }
+  if (Array.isArray(err.errors)) {
+    return err.errors.some((e) => isDatabaseConnectionError(e));
+  }
+  return false;
+};
+
 export const login = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -37,6 +55,12 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     console.error("Login error:", error);
+    if (isDatabaseConnectionError(error)) {
+      return res.status(503).json({
+        error:
+          "Cannot connect to the database. Start PostgreSQL and verify PGHOST, PGPORT, PGUSER, PGDATABASE in backend/.env.",
+      });
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 };

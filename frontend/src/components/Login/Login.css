@@ -28,6 +28,28 @@
   max-width: 450px;
 }
 
+/* Mobile-only compact strip (hidden on desktop) */
+.brand-strip-mobile {
+  display: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo-mobile {
+  display: block;
+  max-height: 40px;
+  width: auto;
+  object-fit: contain;
+}
+
+.brand-tagline-mobile {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
 .brand-title {
   font-size: 48px;
   font-weight: 700;
@@ -248,21 +270,110 @@
   animation: spin 1s ease-in-out infinite;
 }
 
-/* Responsive */
+/* Responsive: tablet — stack panels */
 @media (max-width: 768px) {
   .login-split-container {
     flex-direction: column;
   }
-  
+
   .login-left-panel {
     padding: 60px 30px;
     min-height: 40vh;
     flex: none;
   }
-  
+
   .login-right-panel {
     padding: 40px 20px;
     flex: none;
     min-height: 60vh;
+  }
+}
+
+/* Phones: compact header strip + form polish */
+@media (max-width: 640px) {
+  .login-left-panel {
+    flex: none;
+    min-height: 96px;
+    max-height: 96px;
+    padding: 12px 20px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .left-panel-content {
+    max-width: none;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .brand-strip-mobile {
+    display: flex;
+  }
+
+  .brand-desktop {
+    display: none;
+  }
+
+  .decorative-curves {
+    display: none;
+  }
+
+  .read-more-button {
+    display: none;
+  }
+
+  .login-right-panel {
+    flex: 1;
+    min-height: 0;
+    padding: 24px 20px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .login-header {
+    margin-bottom: 28px;
+  }
+
+  .login-header h2 {
+    font-size: 26px;
+  }
+
+  .login-header p {
+    font-size: 15px;
+  }
+
+  .login-form {
+    gap: 16px;
+  }
+
+  .login-input-wrapper {
+    min-height: 52px;
+    box-sizing: border-box;
+  }
+
+  .login-input-wrapper .pill-input,
+  .login-input-wrapper .password-input__field {
+    font-size: 16px;
+    min-height: 52px;
+    box-sizing: border-box;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .login-input-wrapper .password-input__field {
+    padding-right: 48px;
+  }
+
+  .login-button-pill {
+    font-size: 16px;
+    min-height: 52px;
+  }
+
+  .error-message__debug {
+    max-height: 30vh;
   }
 }
