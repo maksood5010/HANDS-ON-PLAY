@@ -242,7 +242,7 @@ export const playlistAPI = {
     return response.data;
   },
 
-  uploadFile: async (playlistId, file, duration) => {
+  uploadFile: async (playlistId, file, duration, options = {}) => {
     const formData = new FormData();
     formData.append("file", file);
     if (duration) {
@@ -261,43 +261,6 @@ export const playlistAPI = {
           "Content-Type": "multipart/form-data",
           "x-user-id": userId || "",
         },
-      }
-    );
-    return response.data;
-  },
-
-  // Upload multiple files to a playlist in a single request
-  // files: File[]
-  // durations: number[] | (number | null)[]  (per-file durations, same order as files; use null/undefined for videos)
-  // options: { onProgress?: (percent:number, evt?:ProgressEvent) => void }
-  uploadFiles: async (playlistId, files, durations = [], options = {}) => {
-    const formData = new FormData();
-
-    files.forEach((file, index) => {
-      if (!file) return;
-      formData.append("files", file);
-      const duration = durations[index];
-      // Only send duration for images; backend may ignore for videos anyway
-      if (duration != null && duration !== "" && !Number.isNaN(duration)) {
-        formData.append("durations[]", String(duration));
-      } else {
-        formData.append("durations[]", "");
-      }
-    });
-
-    const userId = getUserId();
-    if (userId) {
-      formData.append("user_id", userId);
-    }
-
-    const response = await axios.post(
-      `${API_BASE_URL}/playlists/${playlistId}/upload-multi`,
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          "x-user-id": userId || "",
-        },
         onUploadProgress: (evt) => {
           const total = evt?.total;
           const loaded = evt?.loaded ?? 0;
@@ -309,6 +272,40 @@ export const playlistAPI = {
       }
     );
     return response.data;
+  },
+
+  // Upload multiple files one at a time (avoids proxy/request body limits on batched uploads).
+  // files: File[]
+  // durations: number[] | (number | null)[]  (per-file durations, same order as files; use null/undefined for videos)
+  // options: { onProgress?: (percent:number, evt?:ProgressEvent) => void }
+  uploadFiles: async (playlistId, files, durations = [], options = {}) => {
+    const validFiles = files.filter(Boolean);
+    if (!validFiles.length) {
+      throw new Error("No files to upload");
+    }
+
+    const uploadedFiles = [];
+    const playlistItems = [];
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      const duration = durations[i];
+      const fileDuration =
+        duration != null && duration !== "" && !Number.isNaN(duration) ? duration : null;
+
+      const result = await playlistAPI.uploadFile(playlistId, file, fileDuration, {
+        onProgress: (filePercent) => {
+          if (!options?.onProgress) return;
+          const overall = Math.round(((i + filePercent / 100) / validFiles.length) * 100);
+          options.onProgress(Math.max(0, Math.min(100, overall)));
+        },
+      });
+
+      if (result?.file) uploadedFiles.push(result.file);
+      if (result?.playlistItem) playlistItems.push(result.playlistItem);
+    }
+
+    return { success: true, files: uploadedFiles, playlistItems };
   },
 
   getPlaylistItems: async (playlistId) => {
