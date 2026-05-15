@@ -614,7 +614,8 @@ function Companies() {
               className="modal-form-stack"
               aria-busy={creatingCompany}
             >
-              <fieldset className="modal-body-scroll companies-modal-fieldset" disabled={creatingCompany}>
+              <div className="modal-body-scroll">
+              <fieldset className="companies-modal-fieldset" disabled={creatingCompany}>
               <div className="companies-form-grid">
               <div className="form-group">
                 <label>Name *</label>
@@ -777,6 +778,7 @@ function Companies() {
               </div>
               </div>
               </fieldset>
+              </div>
               <div className="modal-actions modal-actions-footer">
                 <button
                   type="button"

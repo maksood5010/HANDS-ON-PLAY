@@ -39,6 +39,11 @@
   min-width: 0;
 }
 
+/* fieldset must not be the scroll flex child (breaks overflow in flex modals) */
+.companies-company-modal .modal-body-scroll .companies-modal-fieldset {
+  display: block;
+}
+
 .companies-modal-error {
   flex-shrink: 0;
   display: flex;
