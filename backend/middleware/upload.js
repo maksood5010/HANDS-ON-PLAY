@@ -11,6 +11,13 @@ const driver = String(process.env.UPLOAD_DRIVER || "spaces")
   .toLowerCase();
 const useLocalDisk = driver === "local";
 
+const rawMb = process.env.PLAYLIST_UPLOAD_MAX_MB;
+const parsedMb =
+  rawMb !== undefined && rawMb !== "" ? parseInt(String(rawMb).trim(), 10) : NaN;
+export const PLAYLIST_UPLOAD_MAX_MB =
+  Number.isFinite(parsedMb) && parsedMb > 0 ? Math.min(500, Math.max(1, parsedMb)) : 100;
+const maxBytes = PLAYLIST_UPLOAD_MAX_MB * 1024 * 1024;
+
 // Create uploads directory if it doesn't exist (local mode only)
 const uploadsDir = path.join(__dirname, "../uploads");
 if (useLocalDisk && !fs.existsSync(uploadsDir)) {
@@ -59,14 +66,38 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
-  }
+    fileSize: maxBytes,
+  },
 });
 
-export default upload;
+const handleMulterError = (err, res, next) => {
+  if (!err) return next();
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error: `Each file must be ${PLAYLIST_UPLOAD_MAX_MB} MB or smaller`,
+    });
+  }
+  if (err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE") {
+    return res.status(400).json({ error: err.message || "Too many files in upload" });
+  }
+  if (err.message === "Only image and video files are allowed!") {
+    return res.status(400).json({ error: err.message });
+  }
+  return res.status(400).json({ error: err.message || "Upload failed" });
+};
 
+/** Single playlist media file (`file` field). */
+export const uploadPlaylistFile = (req, res, next) => {
+  upload.single("file")(req, res, (err) => handleMulterError(err, res, next));
+};
+
+/** Multiple playlist media files (`files` field). */
+export const uploadPlaylistFiles = (req, res, next) => {
+  upload.array("files")(req, res, (err) => handleMulterError(err, res, next));
+};
+
+export default upload;

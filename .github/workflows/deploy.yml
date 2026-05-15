@@ -48,6 +48,11 @@ jobs:
           # Deploy the backend source code (preserving remote .env and node_modules)
           rsync -avz --delete --exclude 'node_modules' --exclude '.env' backend/ root@${{ secrets.DROPLET_IP }}:/var/www/backend/
 
+      - name: Configure nginx upload body size
+        run: |
+          rsync -avz deploy/nginx-upload-size.conf root@${{ secrets.DROPLET_IP }}:/etc/nginx/conf.d/upload-size.conf
+          ssh root@${{ secrets.DROPLET_IP }} "nginx -t && systemctl reload nginx"
+
       - name: Restart Backend Server
         run: |
           ssh root@${{ secrets.DROPLET_IP }} "cd /var/www/backend && npm install && pm2 restart hands-on-play-api || pm2 start server.js --name 'hands-on-play-api'"

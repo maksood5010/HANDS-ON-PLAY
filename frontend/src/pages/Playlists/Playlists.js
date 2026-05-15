@@ -438,7 +438,16 @@ function Playlists() {
       setShowUploadModal(false);
       fetchPlaylistDetails(selectedPlaylist.id);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to upload files');
+      const status = err.response?.status;
+      const serverMsg = err.response?.data?.error;
+      if (status === 413) {
+        setError(
+          serverMsg ||
+            'Upload too large for the server. Try smaller files, or ask your admin to raise the nginx upload limit.'
+        );
+      } else {
+        setError(serverMsg || err.message || 'Failed to upload files');
+      }
     } finally {
       setUploading(false);
       setUploadProgress(0);

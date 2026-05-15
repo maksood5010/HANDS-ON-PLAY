@@ -21,7 +21,7 @@ import {
   deleteScheduleHandler
 } from "../controllers/playlistController.js";
 import { authenticate } from "../middleware/auth.js";
-import upload from "../middleware/upload.js";
+import { uploadPlaylistFile, uploadPlaylistFiles } from "../middleware/upload.js";
 
 const router = express.Router();
 
@@ -47,8 +47,8 @@ router.delete("/schedules/:scheduleId", deleteScheduleHandler);
 
 // Playlist items routes
 router.get("/playlists/:id/items", getPlaylistItemsHandler);
-router.post("/playlists/:playlistId/upload", upload.single("file"), uploadFileToPlaylistHandler);
-router.post("/playlists/:playlistId/upload-multi", upload.array("files"), uploadFilesToPlaylistHandler);
+router.post("/playlists/:playlistId/upload", uploadPlaylistFile, uploadFileToPlaylistHandler);
+router.post("/playlists/:playlistId/upload-multi", uploadPlaylistFiles, uploadFilesToPlaylistHandler);
 router.put("/playlist-items/:itemId/duration", updateItemDurationHandler);
 router.put("/playlist-items/:itemId/order", updateItemOrderHandler);
 router.delete("/playlist-items/:itemId", deleteItemHandler);
