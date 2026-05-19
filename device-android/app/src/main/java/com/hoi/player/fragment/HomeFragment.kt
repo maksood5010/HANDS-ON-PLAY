@@ -74,6 +74,7 @@ class HomeFragment : Fragment() {
         }
 
         adapter = PlaylistPagerAdapter(
+            appContext = requireContext().applicationContext,
             onVideoEnded = { advanceToNext() },
             onVideoError = {
                 handler.postDelayed({ advanceToNext() }, 2000)
@@ -112,6 +113,7 @@ class HomeFragment : Fragment() {
             if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
                 adapter.currentPosition = 0
+                adapter.prefetchAdjacentVideo(0)
                 startAdvanceForPosition(0)
             }
         }

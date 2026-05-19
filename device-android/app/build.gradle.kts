@@ -80,12 +80,14 @@ dependencies {
     // Glide for images (built-in disk cache)
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
-// ExoPlayer (media3) for video with disk cache
-    implementation("androidx.media3:media3-exoplayer:1.2.0")
-    implementation("androidx.media3:media3-ui:1.2.0")
-    implementation("androidx.media3:media3-session:1.2.0")
-    implementation("androidx.media3:media3-database:1.2.0")
-    implementation("androidx.media3:media3-datasource-okhttp:1.2.0")
+// ExoPlayer (media3) — HLS adaptive + disk cache
+    val media3 = "1.4.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-session:$media3")
+    implementation("androidx.media3:media3-database:$media3")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
 // ViewPager2 (uses RecyclerView)
     implementation("androidx.viewpager2:viewpager2:1.1.0")

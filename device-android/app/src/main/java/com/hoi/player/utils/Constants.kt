@@ -10,7 +10,7 @@ object Constants {
 
     const val ACTION_PLAYLIST_REFRESH: String = "com.hoi.player.action.PLAYLIST_REFRESH"
 
-    private const val DEFAULT_BASE_API_URL: String = "http://app.hands-on.ae:5041/"
+    private const val DEFAULT_BASE_API_URL: String = "http://192.168.1.204:5041/"
 
     val apiUrl: String
         get() {

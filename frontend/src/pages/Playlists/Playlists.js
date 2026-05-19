@@ -403,6 +403,14 @@ function Playlists() {
     });
   };
 
+  const uploadProgressLabel = () => {
+    const percent = Math.max(0, Math.min(100, uploadProgress || 0));
+    if (percent >= 100) {
+      return 'Saving on server…';
+    }
+    return `Uploading ${percent}%`;
+  };
+
   const handleUploadFile = async (e) => {
     e.preventDefault();
     if (!uploadFiles.length) {
@@ -1152,7 +1160,7 @@ function Playlists() {
               className="submit-btn"
               disabled={uploading || uploadFiles.length === 0}
             >
-              {uploading ? `Uploading ${Math.max(0, Math.min(100, uploadProgress || 0))}%` : 'Upload Files'}
+              {uploading ? uploadProgressLabel() : 'Upload Files'}
             </button>
           </div>
         }
@@ -1164,7 +1172,7 @@ function Playlists() {
                 <div className="playlist-upload-progress__row">
                   <span className="playlist-upload-progress__spinner" aria-hidden="true" />
                   <span className="playlist-upload-progress__label">
-                    Uploading {Math.max(0, Math.min(100, uploadProgress || 0))}%
+                    {uploadProgressLabel()}
                   </span>
                 </div>
                 <div

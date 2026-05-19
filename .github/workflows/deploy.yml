@@ -53,6 +53,11 @@ jobs:
           rsync -avz deploy/nginx-upload-size.conf root@${{ secrets.DROPLET_IP }}:/etc/nginx/conf.d/upload-size.conf
           ssh root@${{ secrets.DROPLET_IP }} "nginx -t && systemctl reload nginx"
 
+      - name: Install ffmpeg and run DB migrations
+        run: |
+          ssh root@${{ secrets.DROPLET_IP }} "command -v ffmpeg >/dev/null 2>&1 || (apt-get update && apt-get install -y ffmpeg)"
+          ssh root@${{ secrets.DROPLET_IP }} "cd /var/www/backend && npm install && npm run db:migrate"
+
       - name: Restart Backend Server
         run: |
-          ssh root@${{ secrets.DROPLET_IP }} "cd /var/www/backend && npm install && pm2 restart hands-on-play-api || pm2 start server.js --name 'hands-on-play-api'"
+          ssh root@${{ secrets.DROPLET_IP }} "cd /var/www/backend && pm2 restart hands-on-play-api || pm2 start server.js --name 'hands-on-play-api'"

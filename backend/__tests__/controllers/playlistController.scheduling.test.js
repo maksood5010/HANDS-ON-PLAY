@@ -46,6 +46,9 @@ jest.unstable_mockModule("../../utils/firebaseAdmin.js", () => ({
 jest.unstable_mockModule("../../services/storage/index.js", () => ({
   putObject: jest.fn(),
 }));
+jest.unstable_mockModule("../../services/transcode/transcodeQueue.js", () => ({
+  enqueueVideoTranscode: jest.fn(),
+}));
 jest.unstable_mockModule("fs", () => ({
   default: { unlinkSync: jest.fn() },
   unlinkSync: jest.fn(),
