@@ -19,6 +19,7 @@ import kotlin.math.abs
 import com.hoi.player.MainActivity
 import com.hoi.player.adapter.PlaylistPagerAdapter
 import com.hoi.player.databinding.FragmentHomeBinding
+import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
@@ -40,10 +41,15 @@ class HomeFragment : Fragment() {
 
     private lateinit var adapter: PlaylistPagerAdapter
 
-    private val refreshReceiver = object : BroadcastReceiver() {
+    private var lastConnectivityFetchAtMs = 0L
+
+    private val playlistEventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Constants.ACTION_PLAYLIST_REFRESH) {
-                deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
+            when (intent?.action) {
+                Constants.ACTION_PLAYLIST_REFRESH ->
+                    deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
+                Constants.ACTION_CONNECTIVITY_RESTORED ->
+                    fetchPlaylistIfIdleOnConnectivityRestore()
             }
         }
     }
@@ -227,9 +233,23 @@ class HomeFragment : Fragment() {
         binding.tvError.visibility = View.GONE
     }
 
+    private fun fetchPlaylistIfIdleOnConnectivityRestore() {
+        if (!shouldFetchOnConnectivityRestore()) return
+        val key = deviceKey ?: return
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastConnectivityFetchAtMs < CONNECTIVITY_FETCH_DEBOUNCE_MS) return
+        lastConnectivityFetchAtMs = nowMs
+        viewModel.fetchPlaylist(key)
+    }
+
+    private fun shouldFetchOnConnectivityRestore(): Boolean {
+        if (!::adapter.isInitialized) return false
+        return shouldFetchOnConnectivityRestore(adapter.itemCount)
+    }
+
     override fun onStop() {
         try {
-            requireContext().unregisterReceiver(refreshReceiver)
+            requireContext().unregisterReceiver(playlistEventReceiver)
         } catch (_: Throwable) {
         }
         if (::adapter.isInitialized) {
@@ -240,11 +260,24 @@ class HomeFragment : Fragment() {
 
     override fun onStart() {
         super.onStart()
+        val filter = IntentFilter().apply {
+            addAction(Constants.ACTION_PLAYLIST_REFRESH)
+            addAction(Constants.ACTION_CONNECTIVITY_RESTORED)
+        }
         ContextCompat.registerReceiver(
             requireContext(),
-            refreshReceiver,
-            IntentFilter(Constants.ACTION_PLAYLIST_REFRESH),
+            playlistEventReceiver,
+            filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        if (shouldFetchOnConnectivityRestore() &&
+            ConnectivityRestoreMonitor.isWifiValidated(requireContext())
+        ) {
+            fetchPlaylistIfIdleOnConnectivityRestore()
+        }
+    }
+
+    companion object {
+        private const val CONNECTIVITY_FETCH_DEBOUNCE_MS = 3_000L
     }
 }

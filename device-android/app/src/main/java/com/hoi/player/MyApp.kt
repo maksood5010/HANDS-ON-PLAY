@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.PreferencesManager
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
@@ -14,10 +15,21 @@ import java.io.File
 @HiltAndroidApp
 class MyApp : Application() {
 
+    private lateinit var connectivityRestoreMonitor: ConnectivityRestoreMonitor
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         PreferencesManager.with(this)
+        connectivityRestoreMonitor = ConnectivityRestoreMonitor(applicationContext)
+        connectivityRestoreMonitor.start()
+    }
+
+    override fun onTerminate() {
+        if (::connectivityRestoreMonitor.isInitialized) {
+            connectivityRestoreMonitor.stop()
+        }
+        super.onTerminate()
     }
 
     companion object {
