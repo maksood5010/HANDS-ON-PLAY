@@ -46,6 +46,9 @@ jest.unstable_mockModule("../../utils/firebaseAdmin.js", () => ({
 jest.unstable_mockModule("../../services/storage/index.js", () => ({
   putObject: jest.fn().mockResolvedValue({ key: "k" }),
 }));
+jest.unstable_mockModule("../../services/transcode/transcodeQueue.js", () => ({
+  enqueueVideoTranscode: jest.fn(),
+}));
 
 const fsUnlinkSync = jest.fn();
 jest.unstable_mockModule("fs", () => ({
@@ -58,6 +61,7 @@ let playlistModel;
 let playlistItemModel;
 let fileModel;
 let storage;
+let transcodeQueue;
 
 beforeAll(async () => {
   controller = await import("../../controllers/playlistController.js");
@@ -65,6 +69,7 @@ beforeAll(async () => {
   playlistItemModel = await import("../../models/playlistItemModel.js");
   fileModel = await import("../../models/fileModel.js");
   storage = await import("../../services/storage/index.js");
+  transcodeQueue = await import("../../services/transcode/transcodeQueue.js");
   jest.spyOn(console, "error").mockImplementation(() => {});
   process.env.UPLOAD_DRIVER = "spaces";
 });
@@ -195,6 +200,32 @@ describe("uploadFileToPlaylistHandler", () => {
       null,
       1
     );
+
+    expect(transcodeQueue.enqueueVideoTranscode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileId: 101,
+        companyId: 10,
+        sourceBuffer: expect.any(Buffer),
+      })
+    );
+  });
+
+  test("does not enqueue transcode for image uploads", async () => {
+    playlistModel.getPlaylistById.mockResolvedValue({ id: 5 });
+    fileModel.saveFile.mockResolvedValue({ id: 100 });
+    playlistItemModel.getNextDisplayOrder.mockResolvedValue(1);
+    playlistItemModel.addItemToPlaylist.mockResolvedValue({ id: 200 });
+
+    const req = buildReq({
+      params: { playlistId: "5" },
+      file: makeImageFile(),
+      body: {},
+    });
+    const res = buildRes();
+
+    await controller.uploadFileToPlaylistHandler(req, res);
+
+    expect(transcodeQueue.enqueueVideoTranscode).not.toHaveBeenCalled();
   });
 
   test("uses provided duration override for image files", async () => {

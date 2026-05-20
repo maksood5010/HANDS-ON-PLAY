@@ -9,8 +9,9 @@ object Constants {
     const val PREF_PLACEHOLDER_LOGO_URL: String = "placeholder_logo_url"
 
     const val ACTION_PLAYLIST_REFRESH: String = "com.hoi.player.action.PLAYLIST_REFRESH"
+    const val ACTION_CONNECTIVITY_RESTORED: String = "com.hoi.player.action.CONNECTIVITY_RESTORED"
 
-    private const val DEFAULT_BASE_API_URL: String = "http://app.hands-on.ae:5041/"
+    private const val DEFAULT_BASE_API_URL: String = "http://192.168.1.204:5041/"
 
     val apiUrl: String
         get() {

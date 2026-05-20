@@ -31,6 +31,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { putObject } from "../services/storage/index.js";
+import { enqueueVideoTranscode } from "../services/transcode/transcodeQueue.js";
+import { createUploadTimer, logAfterMulter } from "../utils/uploadTiming.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -163,6 +165,12 @@ const processUploadedFile = async (
   userId,
   durationOverride = null
 ) => {
+  const timer = createUploadTimer(`file-${file?.originalname || "unknown"}`);
+  timer.step("process_start", {
+    sizeMB: file?.size ? (file.size / (1024 * 1024)).toFixed(2) : null,
+    mime: file?.mimetype,
+  });
+
   // Determine file type
   const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
 
@@ -183,12 +191,14 @@ const processUploadedFile = async (
       throw new Error("Spaces upload expected in-memory file buffer");
     }
 
+    timer.step("spaces_putObject_start", { key });
     await putObject({
       key,
       body: file.buffer,
       contentType: file.mimetype || "application/octet-stream",
       cacheControl: "public, max-age=31536000, immutable",
     });
+    timer.step("spaces_putObject_done", { key });
 
     relativePath = key;
     storedName = path.posix.basename(key);
@@ -210,9 +220,11 @@ const processUploadedFile = async (
     file.mimetype,
     userId
   );
+  timer.step("db_saveFile", { fileId: fileRecord.id });
 
   // Get next display order
   const displayOrder = await getNextDisplayOrder(playlistId, companyId);
+  timer.step("db_getNextDisplayOrder", { displayOrder });
 
   // Add to playlist (default duration 5 seconds for images, null for videos)
   const itemDuration =
@@ -227,12 +239,26 @@ const processUploadedFile = async (
     itemDuration,
     displayOrder
   );
+  timer.step("db_addItemToPlaylist", { itemId: playlistItem.id });
+
+  if (fileType === "video") {
+    enqueueVideoTranscode({
+      fileId: fileRecord.id,
+      companyId,
+      localSourcePath: isSpacesDriver() ? undefined : file.path,
+      sourceBuffer: isSpacesDriver() ? file.buffer : undefined,
+    });
+    timer.step("hls_enqueue_async", { note: "does not block response" });
+  }
+
+  timer.done("processUploadedFile");
 
   return { fileRecord, playlistItem };
 };
 
 // Upload file and add to playlist (single-file endpoint, uses shared helper)
 export const uploadFileToPlaylistHandler = async (req, res) => {
+  const handlerTimer = createUploadTimer(`handler-playlist-${req.params.playlistId}`);
   try {
     const { playlistId } = req.params;
     const { duration } = req.body;
@@ -240,12 +266,20 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
     const companyId = req.user.company_id;
     const file = req.file;
 
+    logAfterMulter(req, {
+      field: file?.fieldname,
+      name: file?.originalname,
+      size: file?.size,
+    });
+    handlerTimer.step("handler_start");
+
     if (!file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
     // Verify playlist exists
     const playlist = await getPlaylistById(parseInt(playlistId), companyId);
+    handlerTimer.step("db_getPlaylistById", { found: Boolean(playlist) });
     if (!playlist) {
       // Delete uploaded file if playlist doesn't exist
       if (file?.path) {
@@ -266,13 +300,16 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
       userId,
       duration
     );
+    handlerTimer.step("processUploadedFile_returned");
 
     res.status(201).json({
       success: true,
       file: fileRecord,
       playlistItem
     });
+    handlerTimer.done("handler_201_sent");
   } catch (error) {
+    handlerTimer.step("handler_error", { message: error?.message });
     console.error("Error uploading file:", error);
     // Delete file if error occurred
     if (req.file?.path) {
@@ -288,11 +325,15 @@ export const uploadFileToPlaylistHandler = async (req, res) => {
 
 // Upload multiple files and add them to playlist
 export const uploadFilesToPlaylistHandler = async (req, res) => {
+  const handlerTimer = createUploadTimer(`handler-multi-playlist-${req.params.playlistId}`);
   try {
     const { playlistId } = req.params;
     const userId = req.user?.id || null;
     const companyId = req.user?.company_id || null;
     const files = req.files || [];
+
+    logAfterMulter(req, { fileCount: files.length });
+    handlerTimer.step("handler_start", { fileCount: files.length });
 
     if (!files.length) {
       return res.status(400).json({ error: "No files uploaded" });
@@ -304,6 +345,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
 
     // Verify playlist exists
     const playlist = await getPlaylistById(parseInt(playlistId), companyId);
+    handlerTimer.step("db_getPlaylistById", { found: Boolean(playlist) });
     if (!playlist) {
       // Delete uploaded files if playlist doesn't exist
       for (const file of files) {
@@ -331,6 +373,10 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const duration = durations[i] ?? null;
+      handlerTimer.step(`file_${i + 1}_of_${files.length}_start`, {
+        name: file.originalname,
+        sizeMB: (file.size / (1024 * 1024)).toFixed(2),
+      });
       const { fileRecord, playlistItem } = await processUploadedFile(
         companyId,
         req.user?.company_slug ?? null,
@@ -341,6 +387,7 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
       );
       createdFiles.push(fileRecord);
       createdItems.push(playlistItem);
+      handlerTimer.step(`file_${i + 1}_of_${files.length}_done`, { fileId: fileRecord.id });
     }
 
     res.status(201).json({
@@ -348,7 +395,9 @@ export const uploadFilesToPlaylistHandler = async (req, res) => {
       files: createdFiles,
       playlistItems: createdItems
     });
+    handlerTimer.done("handler_201_sent");
   } catch (error) {
+    handlerTimer.step("handler_error", { message: error?.message });
     console.error("Error uploading multiple files:", error);
     // Best-effort cleanup of any uploaded files on error
     if (req.files && Array.isArray(req.files)) {

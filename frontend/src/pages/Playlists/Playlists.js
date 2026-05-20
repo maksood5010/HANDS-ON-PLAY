@@ -187,6 +187,76 @@ const SchedulePlaylistModal = memo(function SchedulePlaylistModal({
   );
 });
 
+const PlaylistItemMediaModal = memo(function PlaylistItemMediaModal({ item, onClose }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  useEffect(() => () => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+  }, []);
+
+  if (!item) return null;
+
+  const mediaUrl = getFileUrl(item.file_path);
+  const isImage = item.file_type === 'image';
+
+  return (
+    <div
+      className="modal-overlay playlist-media-modal-overlay"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="modal-content modal-content--media-preview"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="playlist-media-preview-title"
+      >
+        <div className="modal-header">
+          <h2 id="playlist-media-preview-title">{item.original_name}</h2>
+          <button type="button" className="close-btn" onClick={onClose} aria-label="Close preview">
+            ×
+          </button>
+        </div>
+        <div className="playlist-media-preview-body">
+          {mediaUrl ? (
+            isImage ? (
+              <img
+                src={mediaUrl}
+                alt={item.original_name}
+                className="playlist-media-preview__media"
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                src={mediaUrl}
+                className="playlist-media-preview__media"
+                controls
+                autoPlay
+                playsInline
+              >
+                Your browser does not support video playback.
+              </video>
+            )
+          ) : (
+            <p className="playlist-media-preview__unavailable">Media unavailable.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function Playlists() {
   const MAX_UPLOAD_FILES = 25;
   const statusClass = (status) => String(status || 'inactive').trim().toLowerCase();
@@ -240,6 +310,7 @@ function Playlists() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [mobileView, setMobileView] = useState('list');
   const [confirmCfg, setConfirmCfg] = useState(null);
+  const [previewItem, setPreviewItem] = useState(null);
 
   const isMobile = useIsMobile(1023);
   const setTopBarAction = useContext(LayoutTopBarActionContext);
@@ -401,6 +472,14 @@ function Playlists() {
         }
       },
     });
+  };
+
+  const uploadProgressLabel = () => {
+    const percent = Math.max(0, Math.min(100, uploadProgress || 0));
+    if (percent >= 100) {
+      return 'Saving on server…';
+    }
+    return `Uploading ${percent}%`;
   };
 
   const handleUploadFile = async (e) => {
@@ -968,11 +1047,24 @@ function Playlists() {
                 <div className="playlist-items">
                   {selectedPlaylist.items.map((item, index) => (
                     <div key={item.id} className="playlist-item-card">
-                      <div className="item-preview">
+                      <div
+                        className="item-preview item-preview--clickable"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Preview ${item.original_name}`}
+                        onClick={() => setPreviewItem(item)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setPreviewItem(item);
+                          }
+                        }}
+                      >
                         {item.file_type === 'image' ? (
                           <img
                             src={getFileUrl(item.file_path)}
                             alt={item.original_name}
+                            draggable={false}
                             onError={(e) => {
                               e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23e5e7eb" width="100" height="100"/%3E%3Ctext fill="%239ca3af" font-family="sans-serif" font-size="14" dy="10.5" font-weight="bold" x="50%" y="50%" text-anchor="middle"%3EImage%3C/text%3E%3C/svg%3E';
                             }}
@@ -1152,7 +1244,7 @@ function Playlists() {
               className="submit-btn"
               disabled={uploading || uploadFiles.length === 0}
             >
-              {uploading ? `Uploading ${Math.max(0, Math.min(100, uploadProgress || 0))}%` : 'Upload Files'}
+              {uploading ? uploadProgressLabel() : 'Upload Files'}
             </button>
           </div>
         }
@@ -1164,7 +1256,7 @@ function Playlists() {
                 <div className="playlist-upload-progress__row">
                   <span className="playlist-upload-progress__spinner" aria-hidden="true" />
                   <span className="playlist-upload-progress__label">
-                    Uploading {Math.max(0, Math.min(100, uploadProgress || 0))}%
+                    {uploadProgressLabel()}
                   </span>
                 </div>
                 <div
@@ -1305,6 +1397,13 @@ function Playlists() {
           onSubmit={handleSchedulePlaylist}
           onToggleSchedule={handleToggleSchedule}
           onDeleteSchedule={handleDeleteSchedule}
+        />
+      )}
+
+      {previewItem && (
+        <PlaylistItemMediaModal
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
         />
       )}
 

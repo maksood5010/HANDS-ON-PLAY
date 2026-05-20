@@ -1,6 +1,7 @@
 package com.hoi.player.adapter
 
 import android.content.ComponentName
+import android.content.Context
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -17,16 +18,19 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.hoi.player.R
 import com.hoi.player.models.PlaylistItem
+import com.hoi.player.models.isVideo
+import com.hoi.player.models.resolvePlaybackUrl
 import androidx.media3.ui.PlayerView
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.hoi.player.playback.PlaybackPrefetch
 import com.hoi.player.playback.PlaybackService
 
 class PlaylistPagerAdapter(
+    private val appContext: Context,
     private val onVideoEnded: () -> Unit,
     private val onVideoError: () -> Unit
 ) : ListAdapter<PlaylistItem, RecyclerView.ViewHolder>(PlaylistItemDiffCallback()) {
-
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var controllerListener: Player.Listener? = null
@@ -39,6 +43,7 @@ class PlaylistPagerAdapter(
                 field = value
                 notifyItemChanged(old)
                 notifyItemChanged(value)
+                prefetchUpcomingVideo(value)
             }
         }
 
@@ -102,6 +107,12 @@ class PlaylistPagerAdapter(
      */
     fun onPlaylistRefreshed() {
         currentVideoUrl = null
+        PlaybackPrefetch.reset()
+    }
+
+    /** Prefetch the next video after the given page (e.g. on initial playlist load). */
+    fun prefetchAdjacentVideo(position: Int) {
+        prefetchUpcomingVideo(position)
     }
 
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -174,8 +185,27 @@ class PlaylistPagerAdapter(
         controllerListener = listener
     }
 
+    private fun prefetchUpcomingVideo(fromPosition: Int) {
+        val items = currentList
+        for (i in (fromPosition + 1) until items.size) {
+            val item = items[i]
+            if (!item.isVideo()) continue
+            val url = item.resolvePlaybackUrl() ?: continue
+            PlaybackPrefetch.prefetch(appContext, url)
+            return
+        }
+        // Loop: prefetch first video when at end of playlist
+        for (i in 0 until fromPosition) {
+            val item = items[i]
+            if (!item.isVideo()) continue
+            val url = item.resolvePlaybackUrl() ?: continue
+            PlaybackPrefetch.prefetch(appContext, url)
+            return
+        }
+    }
+
     private fun handleBindVideo(playerView: PlayerView, item: PlaylistItem, isCurrentPage: Boolean) {
-        val url = item.fileUrl ?: return
+        val url = item.resolvePlaybackUrl() ?: return
         val ctrl = controller
 
         // Always detach until controller exists, to avoid a stale player reference.

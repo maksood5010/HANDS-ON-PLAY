@@ -22,6 +22,7 @@ import {
 } from "../controllers/playlistController.js";
 import { authenticate } from "../middleware/auth.js";
 import { uploadPlaylistFile, uploadPlaylistFiles } from "../middleware/upload.js";
+import { logUploadRequestStart } from "../middleware/uploadTiming.js";
 
 const router = express.Router();
 
@@ -47,8 +48,18 @@ router.delete("/schedules/:scheduleId", deleteScheduleHandler);
 
 // Playlist items routes
 router.get("/playlists/:id/items", getPlaylistItemsHandler);
-router.post("/playlists/:playlistId/upload", uploadPlaylistFile, uploadFileToPlaylistHandler);
-router.post("/playlists/:playlistId/upload-multi", uploadPlaylistFiles, uploadFilesToPlaylistHandler);
+router.post(
+  "/playlists/:playlistId/upload",
+  logUploadRequestStart,
+  uploadPlaylistFile,
+  uploadFileToPlaylistHandler
+);
+router.post(
+  "/playlists/:playlistId/upload-multi",
+  logUploadRequestStart,
+  uploadPlaylistFiles,
+  uploadFilesToPlaylistHandler
+);
 router.put("/playlist-items/:itemId/duration", updateItemDurationHandler);
 router.put("/playlist-items/:itemId/order", updateItemOrderHandler);
 router.delete("/playlist-items/:itemId", deleteItemHandler);
