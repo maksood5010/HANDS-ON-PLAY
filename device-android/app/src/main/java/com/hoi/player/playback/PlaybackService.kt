@@ -4,7 +4,6 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -84,12 +83,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
-        fun mediaItem(url: String): MediaItem {
-            val builder = MediaItem.Builder().setUri(url)
-            if (url.contains(".m3u8", ignoreCase = true)) {
-                builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-            return builder.build()
-        }
+        fun mediaItem(url: String): MediaItem =
+            MediaItem.Builder().setUri(url).build()
     }
 }

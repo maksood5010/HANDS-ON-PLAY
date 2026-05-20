@@ -3,7 +3,6 @@ import { getPlaylistWithItems } from "../models/playlistItemModel.js";
 import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
 import pool from "../config/db.js";
 import { getPublicFileUrl } from "../utils/publicFileUrl.js";
-import { getPlaybackUrl } from "../utils/playbackUrl.js";
 
 function toTs(v) {
   const t = new Date(v ?? 0).getTime();
@@ -134,8 +133,6 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       display_order: item.display_order,
       file_type: item.file_type,
       file_url: getPublicFileUrl({ req, key: item.file_path }),
-      playback_url: getPlaybackUrl({ req, item }),
-      transcode_status: item.transcode_status ?? null,
       original_name: item.original_name,
       mime_type: item.mime_type,
     }));
