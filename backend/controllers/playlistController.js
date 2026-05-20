@@ -31,7 +31,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { putObject } from "../services/storage/index.js";
-import { enqueueVideoTranscode } from "../services/transcode/transcodeQueue.js";
 import { createUploadTimer, logAfterMulter } from "../utils/uploadTiming.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -240,16 +239,6 @@ const processUploadedFile = async (
     displayOrder
   );
   timer.step("db_addItemToPlaylist", { itemId: playlistItem.id });
-
-  if (fileType === "video") {
-    enqueueVideoTranscode({
-      fileId: fileRecord.id,
-      companyId,
-      localSourcePath: isSpacesDriver() ? undefined : file.path,
-      sourceBuffer: isSpacesDriver() ? file.buffer : undefined,
-    });
-    timer.step("hls_enqueue_async", { note: "does not block response" });
-  }
 
   timer.done("processUploadedFile");
 

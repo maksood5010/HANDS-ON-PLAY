@@ -17,8 +17,8 @@ android {
         applicationId = "com.hoi.player"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -80,10 +80,9 @@ dependencies {
     // Glide for images (built-in disk cache)
     implementation("com.github.bumptech.glide:glide:4.16.0")
 
-// ExoPlayer (media3) — HLS adaptive + disk cache
+// ExoPlayer (media3) — progressive MP4 + disk cache
     val media3 = "1.4.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
-    implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-database:$media3")

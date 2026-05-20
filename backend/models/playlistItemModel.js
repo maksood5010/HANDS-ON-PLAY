@@ -23,10 +23,7 @@ export const getPlaylistItems = async (playlistId, companyId) => {
       f.file_path,
       f.file_type,
       f.mime_type,
-      f.file_size,
-      f.hls_path,
-      f.transcode_status,
-      f.transcode_error
+      f.file_size
      FROM playlist_items pi
      INNER JOIN files f ON pi.file_id = f.id
      WHERE pi.playlist_id = $1 AND pi.company_id = $2
@@ -63,10 +60,7 @@ export const getPlaylistWithItems = async (playlistId, companyId) => {
       f.file_path,
       f.file_type,
       f.mime_type,
-      f.file_size,
-      f.hls_path,
-      f.transcode_status,
-      f.transcode_error
+      f.file_size
      FROM playlist_items pi
      INNER JOIN files f ON pi.file_id = f.id
      WHERE pi.playlist_id = $1 AND pi.company_id = $2
