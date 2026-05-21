@@ -270,6 +270,9 @@ class HomeFragment : Fragment() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        if (::adapter.isInitialized && adapter.itemCount > 0) {
+            adapter.resumeCurrentVideo()
+        }
         if (shouldFetchOnConnectivityRestore() &&
             ConnectivityRestoreMonitor.isWifiValidated(requireContext())
         ) {

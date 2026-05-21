@@ -2,6 +2,8 @@ package com.hoi.player.adapter
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -25,6 +27,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.hoi.player.playback.PlaybackPrefetch
 import com.hoi.player.playback.PlaybackService
+import com.hoi.player.playback.isStuckBufferingAtStart
+import com.hoi.player.playback.needsMediaReload
+import com.hoi.player.playback.needsSeekToStart
 
 class PlaylistPagerAdapter(
     private val appContext: Context,
@@ -36,10 +41,15 @@ class PlaylistPagerAdapter(
     private var controllerListener: Player.Listener? = null
     private var currentVideoUrl: String? = null
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var bufferingWatchdogAttempt = 0
+    private val bufferingWatchdogRunnable = Runnable { onBufferingWatchdogFired() }
+
     var currentPosition: Int = 0
         set(value) {
             val old = field
             if (old != value) {
+                cancelBufferingWatchdog()
                 field = value
                 notifyItemChanged(old)
                 notifyItemChanged(value)
@@ -90,15 +100,20 @@ class PlaylistPagerAdapter(
     }
 
     fun pausePlayback() {
+        cancelBufferingWatchdog()
         controller?.pause()
     }
 
     fun restartPlayback() {
         val ctrl = controller ?: return
-        // If a single-item playlist ends, the page won't change; restart locally.
-        ctrl.seekTo(0)
-        ctrl.playWhenReady = true
-        ctrl.play()
+        val url = currentVideoUrl ?: currentItemPlaybackUrl() ?: return
+        startVideoPlayback(ctrl, url, forceReload = needsMediaReload(ctrl.playbackState))
+    }
+
+    fun resumeCurrentVideo() {
+        val url = currentItemPlaybackUrl() ?: return
+        val ctrl = controller ?: return
+        startVideoPlayback(ctrl, url)
     }
 
     /**
@@ -106,8 +121,10 @@ class PlaylistPagerAdapter(
      * It forces the next visible video item to re-prepare even if the URL matches the previous one.
      */
     fun onPlaylistRefreshed() {
+        cancelBufferingWatchdog()
         currentVideoUrl = null
         PlaybackPrefetch.reset()
+        rebindCurrentVideoIfNeeded()
     }
 
     /** Prefetch the next video after the given page (e.g. on initial playlist load). */
@@ -160,7 +177,7 @@ class PlaylistPagerAdapter(
                     attachControllerListener(built)
                     notifyDataSetChanged()
                 } catch (t: Throwable) {
-                    Log.e("PlaylistPagerAdapter", "Failed to build MediaController", t)
+                    Log.e(TAG, "Failed to build MediaController", t)
                     controllerFuture = null
                 }
             },
@@ -172,12 +189,19 @@ class PlaylistPagerAdapter(
         if (controllerListener != null) return
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    onVideoEnded()
+                when (playbackState) {
+                    Player.STATE_ENDED -> onVideoEnded()
+                    Player.STATE_BUFFERING -> scheduleBufferingWatchdogIfNeeded()
+                    Player.STATE_READY -> {
+                        cancelBufferingWatchdog()
+                        bufferingWatchdogAttempt = 0
+                    }
+                    else -> cancelBufferingWatchdog()
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                cancelBufferingWatchdog()
                 onVideoError()
             }
         }
@@ -214,23 +238,95 @@ class PlaylistPagerAdapter(
         if (ctrl == null) return
 
         if (isCurrentPage) {
-            if (currentVideoUrl != url) {
-                currentVideoUrl = url
-                ctrl.setMediaItem(PlaybackService.mediaItem(url))
-                ctrl.prepare()
-            }
-            // If the same URL is reused and the player is in ENDED, explicitly restart.
-            if (ctrl.playbackState == Player.STATE_ENDED) {
-                ctrl.seekTo(0)
-            }
-            ctrl.playWhenReady = true
-            ctrl.play()
+            startVideoPlayback(ctrl, url)
         } else {
+            cancelBufferingWatchdog()
             ctrl.pause()
         }
     }
 
+    private fun startVideoPlayback(
+        ctrl: MediaController,
+        url: String,
+        forceReload: Boolean = false
+    ) {
+        val state = ctrl.playbackState
+        if (forceReload || currentVideoUrl != url || needsMediaReload(state)) {
+            currentVideoUrl = url
+            ctrl.setMediaItem(PlaybackService.mediaItem(url))
+            ctrl.prepare()
+        } else if (needsSeekToStart(state)) {
+            ctrl.seekTo(0)
+        }
+        ctrl.playWhenReady = true
+        ctrl.play()
+    }
+
+    private fun rebindCurrentVideoIfNeeded() {
+        val pos = currentPosition
+        if (pos !in 0 until itemCount) return
+        if (!getItem(pos).isVideo()) return
+        notifyItemChanged(pos)
+    }
+
+    private fun scheduleBufferingWatchdogIfNeeded() {
+        if (!isCurrentItemVideo()) return
+        cancelBufferingWatchdog()
+        val delayMs = if (bufferingWatchdogAttempt == 0) {
+            BUFFERING_WATCHDOG_MS
+        } else {
+            BUFFERING_WATCHDOG_RETRY_MS
+        }
+        mainHandler.postDelayed(bufferingWatchdogRunnable, delayMs)
+    }
+
+    private fun onBufferingWatchdogFired() {
+        val ctrl = controller ?: return
+        if (!isCurrentItemVideo()) return
+        if (!isStuckBufferingAtStart(ctrl.playbackState, ctrl.currentPosition, ctrl.isPlaying)) {
+            bufferingWatchdogAttempt = 0
+            return
+        }
+
+        val url = currentVideoUrl ?: currentItemPlaybackUrl()
+        if (url == null) {
+            onVideoError()
+            return
+        }
+
+        if (bufferingWatchdogAttempt == 0) {
+            Log.w(TAG, "Video stuck buffering at start; forcing reload url=$url")
+            bufferingWatchdogAttempt = 1
+            startVideoPlayback(ctrl, url, forceReload = true)
+            scheduleBufferingWatchdogIfNeeded()
+        } else {
+            Log.w(TAG, "Video still stuck after reload; skipping url=$url")
+            bufferingWatchdogAttempt = 0
+            onVideoError()
+        }
+    }
+
+    private fun isCurrentItemVideo(): Boolean {
+        val pos = currentPosition
+        if (pos !in 0 until itemCount) return false
+        return getItem(pos).isVideo()
+    }
+
+    private fun currentItemPlaybackUrl(): String? {
+        val pos = currentPosition
+        if (pos !in 0 until itemCount) return null
+        if (!getItem(pos).isVideo()) return null
+        return getItem(pos).resolvePlaybackUrl()
+    }
+
+    private fun cancelBufferingWatchdog() {
+        mainHandler.removeCallbacks(bufferingWatchdogRunnable)
+    }
+
     private fun releaseController() {
+        cancelBufferingWatchdog()
+        bufferingWatchdogAttempt = 0
+
         controllerListener?.let { listener ->
             controller?.removeListener(listener)
         }
@@ -254,7 +350,10 @@ class PlaylistPagerAdapter(
     }
 
     companion object {
+        private const val TAG = "PlaylistPagerAdapter"
         private const val TYPE_IMAGE = 0
         private const val TYPE_VIDEO = 1
+        private const val BUFFERING_WATCHDOG_MS = 20_000L
+        private const val BUFFERING_WATCHDOG_RETRY_MS = 10_000L
     }
 }

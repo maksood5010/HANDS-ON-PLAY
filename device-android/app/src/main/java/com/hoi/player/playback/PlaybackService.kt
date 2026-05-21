@@ -28,6 +28,8 @@ class PlaybackService : MediaSessionService() {
         setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(MyApp.exoCache)
             .setUpstreamDataSourceFactory(httpDataSourceFactory)
