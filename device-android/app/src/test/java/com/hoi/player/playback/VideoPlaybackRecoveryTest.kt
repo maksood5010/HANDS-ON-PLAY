@@ -64,4 +64,23 @@ class VideoPlaybackRecoveryTest {
             )
         )
     }
+
+    @Test
+    fun shouldMonitorPlaybackStall_trueWhenPlayingAndReady() {
+        assertTrue(shouldMonitorPlaybackStall(true, Player.STATE_READY))
+        assertTrue(shouldMonitorPlaybackStall(true, Player.STATE_BUFFERING))
+    }
+
+    @Test
+    fun shouldMonitorPlaybackStall_falseWhenIdleOrEnded() {
+        assertFalse(shouldMonitorPlaybackStall(true, Player.STATE_IDLE))
+        assertFalse(shouldMonitorPlaybackStall(true, Player.STATE_ENDED))
+        assertFalse(shouldMonitorPlaybackStall(false, Player.STATE_READY))
+    }
+
+    @Test
+    fun isPositionStalled_detectsFrozenPosition() {
+        assertTrue(isPositionStalled(lastAdvanceAtMs = 0L, nowMs = 3_000L))
+        assertFalse(isPositionStalled(lastAdvanceAtMs = 0L, nowMs = 2_999L))
+    }
 }

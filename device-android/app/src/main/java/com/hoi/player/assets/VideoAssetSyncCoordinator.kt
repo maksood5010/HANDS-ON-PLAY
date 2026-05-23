@@ -60,21 +60,30 @@ class VideoAssetSyncCoordinator @Inject constructor(
         }
         exoCacheCleaner.removeEntries(diff.removed)
 
-        val retainedVideos = incoming.videos.filter { entry ->
+        val storedById = stored.videos.associateBy { it.fileId }
+        for (entry in diff.addedOrChanged) {
+            val previous = storedById[entry.fileId]
+            if (previous != null && previous.fileUrl != entry.fileUrl) {
+                store.resetTranscodeState(entry.fileId)
+            }
+        }
+
+        val mergedIncoming = mergeTranscodeStateFromStored(incoming, stored)
+        val retainedVideos = mergedIncoming.videos.filter { entry ->
             diff.removed.none { it.fileId == entry.fileId }
         }
         val interimManifest = VideoAssetManifest(
-            playlistId = incoming.playlistId,
+            playlistId = mergedIncoming.playlistId,
             videos = retainedVideos
         )
         store.writeManifest(interimManifest)
 
-        val toDownload = incoming.videos.filter { entry ->
+        val toDownload = mergedIncoming.videos.filter { entry ->
             !store.isFileReady(store.localFileFor(entry), entry.fileSize)
         }
 
         if (toDownload.isEmpty()) {
-            store.writeManifest(incoming)
+            store.writeManifest(mergedIncoming)
             return
         }
 
@@ -83,7 +92,7 @@ class VideoAssetSyncCoordinator @Inject constructor(
             downloader.download(entry)
         }
 
-        store.writeManifest(incoming)
+        store.writeManifest(mergedIncoming)
     }
 
     private fun cleanupAndPersist(

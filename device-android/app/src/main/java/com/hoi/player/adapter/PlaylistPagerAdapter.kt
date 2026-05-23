@@ -35,7 +35,9 @@ class PlaylistPagerAdapter(
     private val appContext: Context,
     private val videoAssetStore: VideoAssetStore,
     private val onVideoEnded: () -> Unit,
-    private val onVideoError: () -> Unit
+    private val onVideoError: () -> Unit,
+    private val onVideoPlaybackStarted: (fileId: Int?) -> Unit = {},
+    private val onVideoPlaybackIdle: (fileId: Int?) -> Unit = {}
 ) : ListAdapter<PlaylistItem, RecyclerView.ViewHolder>(PlaylistItemDiffCallback()) {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -51,6 +53,7 @@ class PlaylistPagerAdapter(
             val old = field
             if (old != value) {
                 cancelBufferingWatchdog()
+                notifyPlaybackIdleForPosition(old)
                 field = value
                 notifyItemChanged(old)
                 notifyItemChanged(value)
@@ -107,13 +110,14 @@ class PlaylistPagerAdapter(
     fun restartPlayback() {
         val ctrl = controller ?: return
         val url = currentVideoUrl ?: currentItemPlaybackUri() ?: return
-        startVideoPlayback(ctrl, url, forceReload = needsMediaReload(ctrl.playbackState))
+        val fileId = currentItemFileId()
+        startVideoPlayback(ctrl, url, fileId, forceReload = needsMediaReload(ctrl.playbackState))
     }
 
     fun resumeCurrentVideo() {
         val uri = currentItemPlaybackUri() ?: return
         val ctrl = controller ?: return
-        startVideoPlayback(ctrl, uri)
+        startVideoPlayback(ctrl, uri, currentItemFileId())
     }
 
     /**
@@ -184,7 +188,10 @@ class PlaylistPagerAdapter(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
-                    Player.STATE_ENDED -> onVideoEnded()
+                    Player.STATE_ENDED -> {
+                        notifyPlaybackIdleForCurrentItem()
+                        onVideoEnded()
+                    }
                     Player.STATE_BUFFERING -> scheduleBufferingWatchdogIfNeeded()
                     Player.STATE_READY -> {
                         cancelBufferingWatchdog()
@@ -212,7 +219,7 @@ class PlaylistPagerAdapter(
         if (ctrl == null) return
 
         if (isCurrentPage) {
-            startVideoPlayback(ctrl, uri)
+            startVideoPlayback(ctrl, uri, item.fileId)
         } else {
             cancelBufferingWatchdog()
             ctrl.pause()
@@ -222,9 +229,13 @@ class PlaylistPagerAdapter(
     private fun startVideoPlayback(
         ctrl: MediaController,
         uri: String,
+        fileId: Int?,
         forceReload: Boolean = false
     ) {
         logCurrentVideoPlayback(uri, forceReload)
+        if (uri.startsWith("file:")) {
+            onVideoPlaybackStarted(fileId)
+        }
 
         val state = ctrl.playbackState
         if (forceReload || currentVideoUrl != uri || needsMediaReload(state)) {
@@ -273,7 +284,7 @@ class PlaylistPagerAdapter(
         if (bufferingWatchdogAttempt == 0) {
             Log.w(TAG, "Video stuck buffering at start; forcing reload uri=$uri")
             bufferingWatchdogAttempt = 1
-            startVideoPlayback(ctrl, uri, forceReload = true)
+            startVideoPlayback(ctrl, uri, currentItemFileId(), forceReload = true)
             scheduleBufferingWatchdogIfNeeded()
         } else {
             Log.w(TAG, "Video still stuck after reload; skipping uri=$uri")
@@ -295,10 +306,31 @@ class PlaylistPagerAdapter(
         return getItem(pos).resolveVideoPlaybackUri(videoAssetStore)
     }
 
+    private fun currentItemFileId(): Int? {
+        val pos = currentPosition
+        if (pos !in 0 until itemCount) return null
+        return getItem(pos).fileId
+    }
+
+    private fun notifyPlaybackIdleForCurrentItem() {
+        notifyPlaybackIdleForPosition(currentPosition)
+    }
+
+    private fun notifyPlaybackIdleForPosition(position: Int) {
+        if (position !in 0 until itemCount) return
+        val item = getItem(position)
+        if (!item.isVideo()) return
+        onVideoPlaybackIdle(item.fileId)
+    }
+
     private fun logCurrentVideoPlayback(uri: String, forceReload: Boolean) {
         val pos = currentPosition
         val item = if (pos in 0 until itemCount) getItem(pos) else null
-        val source = if (uri.startsWith("file:")) "local" else "remote"
+        val source = when {
+            uri.contains(".transcoded.") -> "transcoded"
+            uri.startsWith("file:") -> "local"
+            else -> "remote"
+        }
         Log.i(
             TAG,
             "Playing video pos=$pos name=${item?.originalName} fileId=${item?.fileId} " +

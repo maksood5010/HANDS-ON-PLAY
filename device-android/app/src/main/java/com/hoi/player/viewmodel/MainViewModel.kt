@@ -6,6 +6,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hoi.player.assets.VideoAssetSyncCoordinator
+import com.hoi.player.assets.VideoTranscodeCoordinator
 import com.hoi.player.models.DisplayPlaylistResponse
 import com.hoi.player.models.Playlist
 import com.hoi.player.models.ValidateDeviceResponse
@@ -20,11 +21,11 @@ import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 private const val HEARTBEAT_INTERVAL_MS = 60_000L
-
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val apiService: ApiService,
-    private val videoAssetSyncCoordinator: VideoAssetSyncCoordinator
+    private val videoAssetSyncCoordinator: VideoAssetSyncCoordinator,
+    private val videoTranscodeCoordinator: VideoTranscodeCoordinator
 ) : ViewModel() {
 
     private var heartbeatJob: Job? = null
@@ -44,6 +45,29 @@ class MainViewModel @Inject constructor(
 
     private val _heartbeatError = MutableLiveData<String?>()
     val heartbeatError: LiveData<String?> = _heartbeatError
+
+    private val _transcodeEvent = MutableLiveData<TranscodeUiEvent>()
+    val transcodeEvent: LiveData<TranscodeUiEvent> = _transcodeEvent
+
+    init {
+        viewModelScope.launch {
+            videoTranscodeCoordinator.events.collect { event ->
+                _transcodeEvent.postValue(TranscodeUiEvent.from(event))
+            }
+        }
+    }
+
+    fun onVideoPlaybackStarted(fileId: Int?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            videoTranscodeCoordinator.setCurrentlyPlayingFileId(fileId)
+        }
+    }
+
+    fun onVideoPlaybackIdle(previousFileId: Int?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            videoTranscodeCoordinator.notifyPlaybackIdle(previousFileId)
+        }
+    }
 
     fun validateDeviceKey(deviceKey: String) {
         validateJob?.cancel()

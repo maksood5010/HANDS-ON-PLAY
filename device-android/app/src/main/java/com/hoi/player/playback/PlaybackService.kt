@@ -16,12 +16,20 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.hoi.player.MainActivity
 import com.hoi.player.MyApp
+import com.hoi.player.assets.VideoTranscodeCoordinator
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @OptIn(UnstableApi::class)
+@AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
+
+    @Inject
+    lateinit var transcodeCoordinator: VideoTranscodeCoordinator
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private var playbackMonitor: PlaybackMonitor? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,6 +64,10 @@ class PlaybackService : MediaSessionService() {
                 setHandleAudioBecomingNoisy(true)
             }
 
+        playbackMonitor = PlaybackMonitor.attach(exoPlayer) { uri, dropRateFps ->
+            transcodeCoordinator.onFrameDrop(uri, dropRateFps)
+        }
+
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -77,6 +89,9 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        playbackMonitor?.stop()
+        playbackMonitor = null
+
         mediaSession?.release()
         mediaSession = null
 

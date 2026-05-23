@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,8 +37,9 @@ class VideoAssetStore private constructor(
     fun readManifest(): VideoAssetManifest {
         if (!manifestFile.exists()) return VideoAssetManifest.empty()
         return try {
-            gson.fromJson(manifestFile.readText(), VideoAssetManifest::class.java)
-                ?: VideoAssetManifest.empty()
+            (gson.fromJson(manifestFile.readText(), VideoAssetManifest::class.java)
+                ?: VideoAssetManifest.empty())
+                .withResolvedDefaults()
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to read manifest; treating as empty", t)
             VideoAssetManifest.empty()
@@ -46,8 +48,9 @@ class VideoAssetStore private constructor(
 
     fun writeManifest(manifest: VideoAssetManifest) {
         assetsDir.mkdirs()
+        val normalized = manifest.withResolvedDefaults()
         val temp = File(assetsDir, "$MANIFEST_FILE_NAME.part")
-        temp.writeText(gson.toJson(manifest))
+        temp.writeText(gson.toJson(normalized))
         if (manifestFile.exists() && !manifestFile.delete()) {
             Log.w(TAG, "Could not delete old manifest before replace")
         }
@@ -66,11 +69,91 @@ class VideoAssetStore private constructor(
     fun partFileFor(entry: VideoAssetEntry): File =
         File(assetsDir, "${entry.localFileName}.part")
 
+    fun transcodedFileFor(entry: VideoAssetEntry): File {
+        val name = entry.transcodedFileName ?: VideoAssetEntry.transcodedFileNameFor(entry.fileId)
+        return File(assetsDir, name)
+    }
+
+    fun transcodedPartFileFor(entry: VideoAssetEntry): File =
+        File(assetsDir, "${transcodedFileFor(entry).name}.part")
+
+    fun getEntry(fileId: Int): VideoAssetEntry? =
+        readManifest().videos.find { it.fileId == fileId }
+
+    fun getTranscodeStatus(fileId: Int): TranscodeStatus =
+        getEntry(fileId)?.transcodeStatusOrNone() ?: TranscodeStatus.NONE
+
+    fun getTranscodedFileIfReady(fileId: Int): File? {
+        val entry = getEntry(fileId)?.withResolvedDefaults() ?: return null
+        val file = transcodedFileFor(entry)
+        if (!file.exists() || !file.isFile || file.length() <= 0) return null
+        if (entry.transcodeStatusOrNone() != TranscodeStatus.READY) {
+            updateTranscodeStatus(
+                fileId,
+                TranscodeStatus.READY,
+                entry.transcodedFileName ?: VideoAssetEntry.transcodedFileNameFor(fileId)
+            )
+        }
+        return file
+    }
+
+    fun getLocalOriginalUri(fileId: Int): String? =
+        getLocalFileIfReady(fileId)?.toURI()?.toString()
+
+    fun resolveFileIdFromLocalPlaybackUri(uri: String): Int? {
+        if (!uri.startsWith("file:")) return null
+        return try {
+            val path = URI(uri).path ?: return null
+            File(path).name.substringBefore('.').toIntOrNull()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Maps the URI ExoPlayer is playing (local file or remote URL) to a manifest fileId. */
+    fun resolveFileIdFromPlaybackUri(uri: String): Int? {
+        resolveFileIdFromLocalPlaybackUri(uri)?.let { return it }
+        if (!uri.startsWith("http")) return null
+        val manifest = readManifest()
+        return manifest.videos.find { entry -> entry.fileUrl == uri }?.fileId
+    }
+
+    fun updateTranscodeStatus(
+        fileId: Int,
+        status: TranscodeStatus,
+        transcodedFileName: String? = null
+    ) {
+        val manifest = readManifest()
+        val updatedVideos = manifest.videos.map { entry ->
+            if (entry.fileId != fileId) entry
+            else entry.copy(
+                transcodeStatus = status,
+                transcodedFileName = transcodedFileName ?: entry.transcodedFileName
+            )
+        }
+        writeManifest(manifest.copy(videos = updatedVideos))
+    }
+
     fun getLocalFileIfReady(fileId: Int): File? {
         val manifest = readManifest()
-        val entry = manifest.videos.find { it.fileId == fileId } ?: return null
-        val file = localFileFor(entry)
-        return if (isFileReady(file, entry.fileSize)) file else null
+        val entry = manifest.videos.find { it.fileId == fileId }
+        if (entry != null) {
+            val file = localFileFor(entry)
+            if (isFileReady(file, entry.fileSize)) return file
+        }
+        return findDownloadedOriginalOnDisk(fileId)
+    }
+
+    /** Fallback when manifest is mid-update but the downloaded file is already on disk. */
+    private fun findDownloadedOriginalOnDisk(fileId: Int): File? {
+        val dir = assetsDir
+        if (!dir.isDirectory) return null
+        return dir.listFiles()?.firstOrNull { candidate ->
+            candidate.isFile &&
+                !candidate.name.endsWith(".part") &&
+                !candidate.name.contains(".transcoded.") &&
+                candidate.name.startsWith("$fileId.")
+        }?.takeIf { it.length() > 0 }
     }
 
     fun isFileReady(file: File, expectedSize: Long?): Boolean {
@@ -84,6 +167,24 @@ class VideoAssetStore private constructor(
     fun deleteFileFor(entry: VideoAssetEntry) {
         localFileFor(entry).delete()
         partFileFor(entry).delete()
+        transcodedFileFor(entry).delete()
+        transcodedPartFileFor(entry).delete()
+    }
+
+    fun deleteTranscodedFileFor(entry: VideoAssetEntry) {
+        transcodedFileFor(entry).delete()
+        transcodedPartFileFor(entry).delete()
+    }
+
+    fun resetTranscodeState(fileId: Int) {
+        val entry = getEntry(fileId) ?: return
+        deleteTranscodedFileFor(entry)
+        val manifest = readManifest()
+        val updatedVideos = manifest.videos.map { video ->
+            if (video.fileId != fileId) video
+            else video.copy(transcodeStatus = TranscodeStatus.NONE, transcodedFileName = null)
+        }
+        writeManifest(manifest.copy(videos = updatedVideos))
     }
 
     fun deleteAllAssets() {

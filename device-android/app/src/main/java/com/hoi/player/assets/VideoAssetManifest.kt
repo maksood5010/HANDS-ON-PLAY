@@ -4,6 +4,14 @@ import com.hoi.player.models.Playlist
 import com.hoi.player.models.PlaylistItem
 import com.hoi.player.models.isVideo
 
+enum class TranscodeStatus {
+    NONE,
+    PENDING,
+    RUNNING,
+    READY,
+    FAILED
+}
+
 data class VideoAssetManifest(
     val playlistId: Int?,
     val videos: List<VideoAssetEntry>
@@ -25,9 +33,19 @@ data class VideoAssetEntry(
     val fileId: Int,
     val fileUrl: String,
     val fileSize: Long?,
-    val localFileName: String
+    val localFileName: String,
+    val transcodedFileName: String? = null,
+    // Nullable for Gson: older manifests omit this field and Gson sets null via reflection.
+    val transcodeStatus: TranscodeStatus? = null
 ) {
+    fun withResolvedDefaults(): VideoAssetEntry =
+        copy(transcodeStatus = transcodeStatus ?: TranscodeStatus.NONE)
+
+    fun transcodeStatusOrNone(): TranscodeStatus = transcodeStatus ?: TranscodeStatus.NONE
+
     companion object {
+        fun transcodedFileNameFor(fileId: Int): String = "$fileId.transcoded.mp4"
+
         fun fromPlaylistItem(item: PlaylistItem): VideoAssetEntry? {
             val fileId = item.fileId ?: return null
             val fileUrl = item.fileUrl?.takeIf { it.isNotBlank() } ?: return null
@@ -80,6 +98,29 @@ fun diffVideoAssetManifest(
 
     return VideoAssetManifestDiff(removed = removed, addedOrChanged = addedOrChanged)
 }
+
+fun mergeTranscodeStateFromStored(
+    incoming: VideoAssetManifest,
+    stored: VideoAssetManifest
+): VideoAssetManifest {
+    val storedById = stored.videos.associateBy { it.fileId }
+    return incoming.copy(
+        videos = incoming.videos.map { entry ->
+            val previous = storedById[entry.fileId]?.withResolvedDefaults()
+            if (previous != null && previous.fileUrl == entry.fileUrl) {
+                entry.withResolvedDefaults().copy(
+                    transcodedFileName = previous.transcodedFileName,
+                    transcodeStatus = previous.transcodeStatusOrNone()
+                )
+            } else {
+                entry.withResolvedDefaults()
+            }
+        }
+    )
+}
+
+fun VideoAssetManifest.withResolvedDefaults(): VideoAssetManifest =
+    copy(videos = videos.map { it.withResolvedDefaults() })
 
 private fun VideoAssetEntry.matchesReadyFile(other: VideoAssetEntry): Boolean {
     return fileUrl == other.fileUrl && localFileName == other.localFileName

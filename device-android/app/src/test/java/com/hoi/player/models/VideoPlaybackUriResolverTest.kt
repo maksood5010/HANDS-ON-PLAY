@@ -1,10 +1,65 @@
 package com.hoi.player.models
 
+import com.hoi.player.assets.TranscodeStatus
+import com.hoi.player.assets.VideoAssetEntry
+import com.hoi.player.assets.VideoAssetManifest
+import com.hoi.player.assets.VideoAssetStore
+import com.google.gson.Gson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
+import org.junit.Before
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class VideoPlaybackUriResolverTest {
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
+
+    private lateinit var store: VideoAssetStore
+
+    @Before
+    fun setUp() {
+        store = VideoAssetStore.forTesting(tempFolder.newFolder("video_assets"), Gson())
+    }
+
+    @Test
+    fun resolveVideoPlaybackUri_prefersTranscodedOverOriginal() {
+        val entry = VideoAssetEntry(
+            fileId = 53,
+            fileUrl = "https://cdn.example.com/53.mp4",
+            fileSize = 10L,
+            localFileName = "53.mp4",
+            transcodedFileName = "53.transcoded.mp4",
+            transcodeStatus = TranscodeStatus.READY
+        )
+        store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
+        store.localFileFor(entry).writeBytes(ByteArray(10))
+        store.transcodedFileFor(entry).writeBytes(ByteArray(8))
+
+        val item = playlistItem(fileId = 53)
+        val uri = item.resolveVideoPlaybackUri(store)
+
+        assertEquals(store.transcodedFileFor(entry).toURI().toString(), uri)
+    }
+
+    @Test
+    fun resolveVideoPlaybackUri_prefersOriginalOverRemote() {
+        val entry = VideoAssetEntry(
+            fileId = 99,
+            fileUrl = "https://cdn.example.com/video.mp4",
+            fileSize = 10L,
+            localFileName = "99.mp4"
+        )
+        store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
+        store.localFileFor(entry).writeBytes(ByteArray(10))
+
+        val uri = playlistItem(fileId = 99).resolveVideoPlaybackUri(store)
+
+        assertEquals(store.localFileFor(entry).toURI().toString(), uri)
+    }
 
     @Test
     fun resolveVideoPlaybackUri_prefersLocalFileWhenReady() {
@@ -48,4 +103,17 @@ class VideoPlaybackUriResolverTest {
 
         assertEquals("https://cdn.example.com/video.mp4", uri)
     }
+
+    private fun playlistItem(fileId: Int): PlaylistItem =
+        PlaylistItem(
+            id = 1,
+            fileId = fileId,
+            duration = null,
+            displayOrder = 1,
+            fileType = "video",
+            fileUrl = "https://cdn.example.com/video.mp4",
+            fileSize = null,
+            originalName = "video.mp4",
+            mimeType = "video/mp4"
+        )
 }

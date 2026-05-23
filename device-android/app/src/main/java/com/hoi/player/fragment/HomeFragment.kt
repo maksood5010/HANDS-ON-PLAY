@@ -19,12 +19,14 @@ import kotlin.math.abs
 import com.hoi.player.MainActivity
 import com.hoi.player.adapter.PlaylistPagerAdapter
 import com.hoi.player.assets.VideoAssetStore
+import com.hoi.player.assets.VideoTranscodeLog
 import com.hoi.player.databinding.FragmentHomeBinding
 import com.hoi.player.models.isVideo
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
+import com.hoi.player.viewmodel.TranscodeUiEvent
 import com.bumptech.glide.Glide
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -93,7 +95,9 @@ class HomeFragment : Fragment() {
             onVideoEnded = { advanceToNext() },
             onVideoError = {
                 handler.postDelayed({ advanceToNext() }, 2000)
-            }
+            },
+            onVideoPlaybackStarted = { fileId -> viewModel.onVideoPlaybackStarted(fileId) },
+            onVideoPlaybackIdle = { fileId -> viewModel.onVideoPlaybackIdle(fileId) }
         )
 
         binding.viewPager.adapter = adapter
@@ -156,6 +160,18 @@ class HomeFragment : Fragment() {
             if (!error.isNullOrBlank()) {
                 Log.w("HomeFragment", "Heartbeat error: $error")
                 showError("Connection issue. Trying again…")
+            }
+        }
+
+        viewModel.transcodeEvent.observe(viewLifecycleOwner) { event ->
+            when (event) {
+                is TranscodeUiEvent.Ready -> {
+                    VideoTranscodeLog.usingConvertedFile(event.fileId)
+                    adapter.onPlaylistRefreshed()
+                }
+                is TranscodeUiEvent.Queued,
+                is TranscodeUiEvent.Running,
+                is TranscodeUiEvent.Failed -> Unit
             }
         }
 
