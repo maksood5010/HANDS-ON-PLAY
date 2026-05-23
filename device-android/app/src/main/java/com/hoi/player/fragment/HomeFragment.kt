@@ -18,16 +18,24 @@ import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import com.hoi.player.MainActivity
 import com.hoi.player.adapter.PlaylistPagerAdapter
+import com.hoi.player.assets.VideoAssetStore
 import com.hoi.player.databinding.FragmentHomeBinding
+import com.hoi.player.models.isVideo
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.viewmodel.MainViewModel
 import com.bumptech.glide.Glide
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class HomeFragment : Fragment() {
 
     private val viewModel: MainViewModel by activityViewModels()
+
+    @Inject
+    lateinit var videoAssetStore: VideoAssetStore
 
     private val binding: FragmentHomeBinding by lazy {
         FragmentHomeBinding.inflate(layoutInflater)
@@ -81,6 +89,7 @@ class HomeFragment : Fragment() {
 
         adapter = PlaylistPagerAdapter(
             appContext = requireContext().applicationContext,
+            videoAssetStore = videoAssetStore,
             onVideoEnded = { advanceToNext() },
             onVideoError = {
                 handler.postDelayed({ advanceToNext() }, 2000)
@@ -101,6 +110,7 @@ class HomeFragment : Fragment() {
                 super.onPageSelected(position)
                 handler.removeCallbacks(advanceRunnable)
                 adapter.currentPosition = position
+                prioritizeCurrentVideoDownload(position)
                 startAdvanceForPosition(position)
             }
         })
@@ -119,7 +129,7 @@ class HomeFragment : Fragment() {
             if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
                 adapter.currentPosition = 0
-                adapter.prefetchAdjacentVideo(0)
+                prioritizeCurrentVideoDownload(0)
                 startAdvanceForPosition(0)
             }
         }
@@ -169,6 +179,17 @@ class HomeFragment : Fragment() {
                 binding.placeholderImage.setImageResource(com.hoi.player.R.drawable.placeholder)
             }
         }
+    }
+
+    private fun prioritizeCurrentVideoDownload(position: Int) {
+        val items = adapter.currentList
+        if (position !in items.indices) return
+        val item = items[position]
+        if (!item.isVideo()) return
+        viewModel.prioritizeVideoDownload(
+            playlist = viewModel.playlistResult.value?.playlist,
+            fileId = item.fileId
+        )
     }
 
     private fun startAdvanceForPosition(position: Int) {

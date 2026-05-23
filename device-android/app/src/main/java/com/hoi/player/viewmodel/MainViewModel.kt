@@ -5,7 +5,9 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hoi.player.assets.VideoAssetSyncCoordinator
 import com.hoi.player.models.DisplayPlaylistResponse
+import com.hoi.player.models.Playlist
 import com.hoi.player.models.ValidateDeviceResponse
 import com.hoi.player.network.ApiService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,13 +15,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 private const val HEARTBEAT_INTERVAL_MS = 60_000L
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val apiService: ApiService
+    private val apiService: ApiService,
+    private val videoAssetSyncCoordinator: VideoAssetSyncCoordinator
 ) : ViewModel() {
 
     private var heartbeatJob: Job? = null
@@ -70,8 +75,14 @@ class MainViewModel @Inject constructor(
             try {
                 val response = apiService.getActivePlaylist(deviceKey)
                 if (response.isSuccessful) {
-                    _playlistResult.value = response.body()
+                    val body = response.body()
+                    _playlistResult.value = body
                     _playlistError.value = null
+                    viewModelScope.launch {
+                        withContext(Dispatchers.IO) {
+                            videoAssetSyncCoordinator.sync(body?.playlist)
+                        }
+                    }
                 } else {
                     _playlistResult.value = null
                     _playlistError.value = "Server error: ${response.code()}"
@@ -79,6 +90,14 @@ class MainViewModel @Inject constructor(
             } catch (e: Exception) {
                 _playlistResult.value = null
                 _playlistError.value = e.message ?: "Unknown error"
+            }
+        }
+    }
+
+    fun prioritizeVideoDownload(playlist: Playlist?, fileId: Int?) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                videoAssetSyncCoordinator.prioritizeDownloads(playlist, fileId)
             }
         }
     }

@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -30,9 +31,10 @@ class PlaybackService : MediaSessionService() {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
+        val defaultDataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(MyApp.exoCache)
-            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setUpstreamDataSourceFactory(defaultDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)

@@ -133,6 +133,7 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       display_order: item.display_order,
       file_type: item.file_type,
       file_url: getPublicFileUrl({ req, key: item.file_path }),
+      file_size: item.file_size,
       original_name: item.original_name,
       mime_type: item.mime_type,
     }));

@@ -37,7 +37,7 @@ class MyApp : Application() {
 
         @get:OptIn(UnstableApi::class)
         val exoCache: SimpleCache by lazy {
-            val cacheSize = 500 * 1024 * 1024L // 500MB
+            val cacheSize = 100 * 1024 * 1024L // 100MB stream fallback only
             val cacheEvictor = LeastRecentlyUsedCacheEvictor(cacheSize)
             val databaseProvider = StandaloneDatabaseProvider(instance)
             SimpleCache(File(instance.cacheDir, "exo_cache"), cacheEvictor, databaseProvider)
