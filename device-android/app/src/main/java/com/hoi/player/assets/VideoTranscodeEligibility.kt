@@ -23,8 +23,14 @@ fun shouldQueueTranscode(
 
 fun shouldStartPendingTranscode(
     pendingFileId: Int,
-    currentlyPlayingFileId: Int?
-): Boolean = pendingFileId != currentlyPlayingFileId
+    currentlyPlayingFileId: Int?,
+    prepareBlockingFileId: Int? = null
+): Boolean {
+    if (prepareBlockingFileId != null && pendingFileId == prepareBlockingFileId) {
+        return true
+    }
+    return pendingFileId != currentlyPlayingFileId
+}
 
 fun recordHighDropWindow(
     consecutiveHighDropWindows: Int,

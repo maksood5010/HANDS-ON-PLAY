@@ -106,4 +106,22 @@ class VideoTranscodeEligibilityTest {
         assertTrue(shouldStartPendingTranscode(pendingFileId = 53, currentlyPlayingFileId = 52))
         assertTrue(shouldStartPendingTranscode(pendingFileId = 53, currentlyPlayingFileId = null))
     }
+
+    @Test
+    fun shouldStartPendingTranscode_allowsPrepareBlockingFileWhilePlaying() {
+        assertTrue(
+            shouldStartPendingTranscode(
+                pendingFileId = 53,
+                currentlyPlayingFileId = 53,
+                prepareBlockingFileId = 53
+            )
+        )
+        assertFalse(
+            shouldStartPendingTranscode(
+                pendingFileId = 53,
+                currentlyPlayingFileId = 53,
+                prepareBlockingFileId = 52
+            )
+        )
+    }
 }

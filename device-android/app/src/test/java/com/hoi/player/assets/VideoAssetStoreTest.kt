@@ -37,7 +37,7 @@ class VideoAssetStoreTest {
         store.writeManifest(manifest)
         val loaded = store.readManifest()
 
-        assertEquals(manifest, loaded)
+        assertEquals(manifest.withResolvedDefaults(), loaded)
     }
 
     @Test
@@ -87,11 +87,11 @@ class VideoAssetStoreTest {
         val entry = VideoAssetEntry(11, "https://cdn/11.mp4", null, "11.mp4")
         store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
 
-        store.updateTranscodeStatus(11, TranscodeStatus.READY, "11.transcoded.mp4")
+        store.updateTranscodeStatus(11, TranscodeStatus.READY, "11.transcoded.v2.mp4")
 
         val loaded = store.getEntry(11)
         assertEquals(TranscodeStatus.READY, loaded?.transcodeStatus)
-        assertEquals("11.transcoded.mp4", loaded?.transcodedFileName)
+        assertEquals("11.transcoded.v2.mp4", loaded?.transcodedFileName)
     }
 
     @Test
@@ -101,7 +101,7 @@ class VideoAssetStoreTest {
             fileUrl = "https://cdn/12.mp4",
             fileSize = null,
             localFileName = "12.mp4",
-            transcodedFileName = "12.transcoded.mp4",
+            transcodedFileName = "12.transcoded.v2.mp4",
             transcodeStatus = TranscodeStatus.READY
         )
         store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
@@ -149,7 +149,7 @@ class VideoAssetStoreTest {
             fileUrl = "https://cdn/15.mp4",
             null,
             "15.mp4",
-            transcodedFileName = "15.transcoded.mp4",
+            transcodedFileName = "15.transcoded.v2.mp4",
             transcodeStatus = TranscodeStatus.READY
         )
         store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))

@@ -8,20 +8,32 @@ import org.junit.Test
 class VideoTranscoderDecoderFallbackTest {
 
     @Test
-    fun isDecoderCodecExportException_matchesDecodingFailureCode() {
-        val exception = ExportException.createForCodec(
-            IllegalStateException(),
-            ExportException.ERROR_CODE_DECODING_FAILED,
-            null
+    fun isDecoderCodecExport_matchesDecodingFailureCode() {
+        assertTrue(
+            VideoTranscoder.isDecoderCodecExport(
+                ExportException.ERROR_CODE_DECODING_FAILED,
+                "Codec exception"
+            )
         )
-        assertTrue(VideoTranscoder.isDecoderCodecExportException(exception))
     }
 
     @Test
-    fun isDecoderCodecExportException_ignoresUnrelatedErrors() {
-        val exception = ExportException.createForUnexpected(
-            IllegalStateException("muxer stalled")
+    fun isDecoderCodecExport_ignoresUnrelatedErrors() {
+        assertFalse(
+            VideoTranscoder.isDecoderCodecExport(
+                ExportException.ERROR_CODE_UNSPECIFIED,
+                "muxer stalled"
+            )
         )
-        assertFalse(VideoTranscoder.isDecoderCodecExportException(exception))
+    }
+
+    @Test
+    fun isDecoderCodecExport_matchesCodecInMessage() {
+        assertTrue(
+            VideoTranscoder.isDecoderCodecExport(
+                ExportException.ERROR_CODE_UNSPECIFIED,
+                "Codec init failed"
+            )
+        )
     }
 }

@@ -85,16 +85,32 @@ class VideoAssetStore private constructor(
 
     fun getTranscodedFileIfReady(fileId: Int): File? {
         val entry = getEntry(fileId)?.withResolvedDefaults() ?: return null
-        val file = transcodedFileFor(entry)
-        if (!file.exists() || !file.isFile || file.length() <= 0) return null
-        if (entry.transcodeStatusOrNone() != TranscodeStatus.READY) {
-            updateTranscodeStatus(
-                fileId,
-                TranscodeStatus.READY,
-                entry.transcodedFileName ?: VideoAssetEntry.transcodedFileNameFor(fileId)
-            )
+        val profileFile = File(assetsDir, VideoAssetEntry.transcodedFileNameFor(fileId))
+        if (isReadyFile(profileFile)) {
+            ensureTranscodeReadyInManifest(fileId, entry, profileFile)
+            return profileFile
         }
-        return file
+        if (entry.transcodeStatusOrNone() != TranscodeStatus.READY) return null
+        val manifestNamed = entry.transcodedFileName?.let { File(assetsDir, it) }
+        val legacy = File(assetsDir, VideoTranscodeProfile.legacyTranscodedFileNameFor(fileId))
+        return sequenceOf(manifestNamed, legacy)
+            .filterNotNull()
+            .firstOrNull { isReadyFile(it) }
+    }
+
+    private fun isReadyFile(file: File): Boolean =
+        file.exists() && file.isFile && file.length() > 0
+
+    private fun ensureTranscodeReadyInManifest(
+        fileId: Int,
+        entry: VideoAssetEntry,
+        file: File
+    ) {
+        if (entry.transcodeStatusOrNone() != TranscodeStatus.READY ||
+            entry.transcodedFileName != file.name
+        ) {
+            updateTranscodeStatus(fileId, TranscodeStatus.READY, file.name)
+        }
     }
 
     fun getLocalOriginalUri(fileId: Int): String? =
@@ -174,6 +190,12 @@ class VideoAssetStore private constructor(
     fun deleteTranscodedFileFor(entry: VideoAssetEntry) {
         transcodedFileFor(entry).delete()
         transcodedPartFileFor(entry).delete()
+    }
+
+    fun deleteLegacyTranscodedFile(fileId: Int) {
+        val legacy = File(assetsDir, VideoTranscodeProfile.legacyTranscodedFileNameFor(fileId))
+        legacy.delete()
+        File(assetsDir, "${legacy.name}.part").delete()
     }
 
     fun resetTranscodeState(fileId: Int) {

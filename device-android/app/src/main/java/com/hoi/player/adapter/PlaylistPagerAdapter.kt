@@ -21,6 +21,7 @@ import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.hoi.player.R
 import com.hoi.player.assets.VideoAssetStore
 import com.hoi.player.models.PlaylistItem
+import com.hoi.player.models.VideoPlaybackUriOptions
 import com.hoi.player.models.isVideo
 import com.hoi.player.models.resolveVideoPlaybackUri
 import androidx.media3.ui.PlayerView
@@ -37,7 +38,9 @@ class PlaylistPagerAdapter(
     private val onVideoEnded: () -> Unit,
     private val onVideoError: () -> Unit,
     private val onVideoPlaybackStarted: (fileId: Int?) -> Unit = {},
-    private val onVideoPlaybackIdle: (fileId: Int?) -> Unit = {}
+    private val onVideoPlaybackIdle: (fileId: Int?) -> Unit = {},
+    private val shouldAllowPlayback: (fileId: Int?) -> Boolean = { true },
+    private val playbackUriOptions: () -> VideoPlaybackUriOptions = { VideoPlaybackUriOptions() }
 ) : ListAdapter<PlaylistItem, RecyclerView.ViewHolder>(PlaylistItemDiffCallback()) {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -130,6 +133,10 @@ class PlaylistPagerAdapter(
         rebindCurrentVideoIfNeeded()
     }
 
+    fun releasePlaybackGate() {
+        rebindCurrentVideoIfNeeded()
+    }
+
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val imageView: ImageView = view.findViewById(R.id.imageView)
 
@@ -211,7 +218,7 @@ class PlaylistPagerAdapter(
     }
 
     private fun handleBindVideo(playerView: PlayerView, item: PlaylistItem, isCurrentPage: Boolean) {
-        val uri = item.resolveVideoPlaybackUri(videoAssetStore) ?: return
+        val uri = item.resolveVideoPlaybackUri(videoAssetStore, playbackUriOptions()) ?: return
         val ctrl = controller
 
         playerView.player = ctrl
@@ -219,6 +226,12 @@ class PlaylistPagerAdapter(
         if (ctrl == null) return
 
         if (isCurrentPage) {
+            if (!shouldAllowPlayback(item.fileId)) {
+                cancelBufferingWatchdog()
+                ctrl.pause()
+                ctrl.playWhenReady = false
+                return
+            }
             startVideoPlayback(ctrl, uri, item.fileId)
         } else {
             cancelBufferingWatchdog()
@@ -232,8 +245,16 @@ class PlaylistPagerAdapter(
         fileId: Int?,
         forceReload: Boolean = false
     ) {
+        if (!shouldAllowPlayback(fileId)) {
+            cancelBufferingWatchdog()
+            ctrl.pause()
+            ctrl.playWhenReady = false
+            return
+        }
         logCurrentVideoPlayback(uri, forceReload)
         if (uri.startsWith("file:")) {
+            onVideoPlaybackStarted(fileId)
+        } else if (fileId != null) {
             onVideoPlaybackStarted(fileId)
         }
 
@@ -303,7 +324,7 @@ class PlaylistPagerAdapter(
         val pos = currentPosition
         if (pos !in 0 until itemCount) return null
         if (!getItem(pos).isVideo()) return null
-        return getItem(pos).resolveVideoPlaybackUri(videoAssetStore)
+        return getItem(pos).resolveVideoPlaybackUri(videoAssetStore, playbackUriOptions())
     }
 
     private fun currentItemFileId(): Int? {

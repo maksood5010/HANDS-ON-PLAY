@@ -25,7 +25,9 @@ import com.hoi.player.models.isVideo
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
+import com.hoi.player.ui.TranscodeProgressDialog
 import com.hoi.player.viewmodel.MainViewModel
+import com.hoi.player.viewmodel.PlaybackGateState
 import com.hoi.player.viewmodel.TranscodeUiEvent
 import com.bumptech.glide.Glide
 import dagger.hilt.android.AndroidEntryPoint
@@ -50,6 +52,7 @@ class HomeFragment : Fragment() {
     private val hideErrorRunnable = Runnable { hideError() }
 
     private lateinit var adapter: PlaylistPagerAdapter
+    private var transcodeProgressDialog: TranscodeProgressDialog? = null
 
     private var lastConnectivityFetchAtMs = 0L
 
@@ -89,6 +92,10 @@ class HomeFragment : Fragment() {
             return
         }
 
+        transcodeProgressDialog = TranscodeProgressDialog(requireContext()) { fileId ->
+            viewModel.onSkipPrepareTranscode(fileId)
+        }
+
         adapter = PlaylistPagerAdapter(
             appContext = requireContext().applicationContext,
             videoAssetStore = videoAssetStore,
@@ -97,7 +104,12 @@ class HomeFragment : Fragment() {
                 handler.postDelayed({ advanceToNext() }, 2000)
             },
             onVideoPlaybackStarted = { fileId -> viewModel.onVideoPlaybackStarted(fileId) },
-            onVideoPlaybackIdle = { fileId -> viewModel.onVideoPlaybackIdle(fileId) }
+            onVideoPlaybackIdle = { fileId -> viewModel.onVideoPlaybackIdle(fileId) },
+            shouldAllowPlayback = { fileId ->
+                val gate = viewModel.playbackGate.value
+                gate !is PlaybackGateState.Blocked || gate.fileId != fileId
+            },
+            playbackUriOptions = { viewModel.currentPlaybackUriOptions() }
         )
 
         binding.viewPager.adapter = adapter
@@ -113,6 +125,7 @@ class HomeFragment : Fragment() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
                 handler.removeCallbacks(advanceRunnable)
+                notifyCurrentVideoSelected(position)
                 adapter.currentPosition = position
                 prioritizeCurrentVideoDownload(position)
                 startAdvanceForPosition(position)
@@ -132,6 +145,7 @@ class HomeFragment : Fragment() {
 
             if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
+                notifyCurrentVideoSelected(0)
                 adapter.currentPosition = 0
                 prioritizeCurrentVideoDownload(0)
                 startAdvanceForPosition(0)
@@ -163,15 +177,50 @@ class HomeFragment : Fragment() {
             }
         }
 
+        viewModel.playbackGate.observe(viewLifecycleOwner) { gate ->
+            when (gate) {
+                is PlaybackGateState.Blocked -> {
+                    transcodeProgressDialog?.show(
+                        fileId = gate.fileId,
+                        label = gate.label,
+                        progressPercent = gate.progressPercent
+                    )
+                    if (::adapter.isInitialized) {
+                        adapter.pausePlayback()
+                    }
+                }
+                is PlaybackGateState.Open -> {
+                    transcodeProgressDialog?.dismiss()
+                    if (::adapter.isInitialized) {
+                        adapter.releasePlaybackGate()
+                    }
+                }
+            }
+        }
+
         viewModel.transcodeEvent.observe(viewLifecycleOwner) { event ->
             when (event) {
                 is TranscodeUiEvent.Ready -> {
                     VideoTranscodeLog.usingConvertedFile(event.fileId)
-                    adapter.onPlaylistRefreshed()
+                    if (!isCurrentTranscodeFileId(event.fileId)) return@observe
+                    if (viewModel.shouldAdvanceOnTranscodeReady(event.fileId)) {
+                        advanceToNext()
+                    } else {
+                        adapter.onPlaylistRefreshed()
+                    }
+                }
+                is TranscodeUiEvent.Failed -> {
+                    if (isCurrentTranscodeFileId(event.fileId)) {
+                        adapter.onPlaylistRefreshed()
+                    }
+                }
+                is TranscodeUiEvent.PrepareSkipped -> {
+                    if (isCurrentTranscodeFileId(event.fileId)) {
+                        adapter.onPlaylistRefreshed()
+                    }
                 }
                 is TranscodeUiEvent.Queued,
-                is TranscodeUiEvent.Running,
-                is TranscodeUiEvent.Failed -> Unit
+                is TranscodeUiEvent.Running -> Unit
             }
         }
 
@@ -195,6 +244,31 @@ class HomeFragment : Fragment() {
                 binding.placeholderImage.setImageResource(com.hoi.player.R.drawable.placeholder)
             }
         }
+    }
+
+    private fun notifyCurrentVideoSelected(position: Int) {
+        val items = if (::adapter.isInitialized) adapter.currentList else return
+        if (position !in items.indices) {
+            viewModel.onCurrentVideoSelected(fileId = null)
+            return
+        }
+        val item = items[position]
+        if (!item.isVideo()) {
+            viewModel.onCurrentVideoSelected(fileId = null)
+            return
+        }
+        viewModel.onCurrentVideoSelected(
+            fileId = item.fileId,
+            label = item.originalName ?: item.fileUrl
+        )
+    }
+
+    private fun isCurrentTranscodeFileId(fileId: Int): Boolean {
+        if (!::adapter.isInitialized) return false
+        val pos = binding.viewPager.currentItem
+        val items = adapter.currentList
+        if (pos !in items.indices) return false
+        return items[pos].fileId == fileId
     }
 
     private fun prioritizeCurrentVideoDownload(position: Int) {
@@ -253,6 +327,8 @@ class HomeFragment : Fragment() {
     override fun onDestroyView() {
         handler.removeCallbacks(advanceRunnable)
         handler.removeCallbacks(hideErrorRunnable)
+        transcodeProgressDialog?.dismiss()
+        transcodeProgressDialog = null
         binding.viewPager.adapter = null
         viewModel.stopHeartbeat()
         super.onDestroyView()

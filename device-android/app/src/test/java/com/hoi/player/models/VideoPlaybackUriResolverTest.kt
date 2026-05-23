@@ -32,7 +32,7 @@ class VideoPlaybackUriResolverTest {
             fileUrl = "https://cdn.example.com/53.mp4",
             fileSize = 10L,
             localFileName = "53.mp4",
-            transcodedFileName = "53.transcoded.mp4",
+            transcodedFileName = "53.transcoded.v2.mp4",
             transcodeStatus = TranscodeStatus.READY
         )
         store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
@@ -86,6 +86,44 @@ class VideoPlaybackUriResolverTest {
     }
 
     @Test
+    fun resolveVideoPlaybackUri_prefersRemoteWhenBypassLocalTranscode() {
+        val entry = VideoAssetEntry(
+            fileId = 77,
+            fileUrl = "https://cdn.example.com/77.mp4",
+            fileSize = 10L,
+            localFileName = "77.mp4"
+        )
+        store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
+        store.localFileFor(entry).writeBytes(ByteArray(10))
+
+        val remoteUrl = "https://cdn.example.com/77.mp4"
+        val uri = playlistItem(fileId = 77, fileUrl = remoteUrl).resolveVideoPlaybackUri(
+            store,
+            VideoPlaybackUriOptions(bypassLocalTranscodeFileIds = setOf(77))
+        )
+
+        assertEquals(remoteUrl, uri)
+    }
+
+    @Test
+    fun resolveVideoPlaybackUri_prefersRemoteWhenTranscodeFailed() {
+        val entry = VideoAssetEntry(
+            fileId = 88,
+            fileUrl = "https://cdn.example.com/88.mp4",
+            fileSize = 10L,
+            localFileName = "88.mp4",
+            transcodeStatus = TranscodeStatus.FAILED
+        )
+        store.writeManifest(VideoAssetManifest(playlistId = 1, videos = listOf(entry)))
+        store.localFileFor(entry).writeBytes(ByteArray(10))
+
+        val remoteUrl = "https://cdn.example.com/88.mp4"
+        val uri = playlistItem(fileId = 88, fileUrl = remoteUrl).resolveVideoPlaybackUri(store)
+
+        assertEquals(remoteUrl, uri)
+    }
+
+    @Test
     fun resolveVideoPlaybackUri_fallsBackToRemoteWhenLocalMissing() {
         val item = PlaylistItem(
             id = 1,
@@ -104,14 +142,17 @@ class VideoPlaybackUriResolverTest {
         assertEquals("https://cdn.example.com/video.mp4", uri)
     }
 
-    private fun playlistItem(fileId: Int): PlaylistItem =
+    private fun playlistItem(
+        fileId: Int,
+        fileUrl: String = "https://cdn.example.com/video.mp4"
+    ): PlaylistItem =
         PlaylistItem(
             id = 1,
             fileId = fileId,
             duration = null,
             displayOrder = 1,
             fileType = "video",
-            fileUrl = "https://cdn.example.com/video.mp4",
+            fileUrl = fileUrl,
             fileSize = null,
             originalName = "video.mp4",
             mimeType = "video/mp4"

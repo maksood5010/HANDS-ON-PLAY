@@ -1,13 +1,25 @@
 package com.hoi.player.models
 
+import com.hoi.player.assets.TranscodeStatus
 import com.hoi.player.assets.VideoAssetStore
 
+data class VideoPlaybackUriOptions(
+    val bypassLocalTranscodeFileIds: Set<Int> = emptySet()
+)
+
 /** Local file URI when downloaded and ready; otherwise remote stream URL. */
-fun PlaylistItem.resolveVideoPlaybackUri(store: VideoAssetStore): String? {
+fun PlaylistItem.resolveVideoPlaybackUri(
+    store: VideoAssetStore,
+    options: VideoPlaybackUriOptions = VideoPlaybackUriOptions()
+): String? {
     val remote = resolvePlaybackUrl() ?: return null
     fileId?.let { id ->
-        store.getTranscodedFileIfReady(id)?.let { return it.toURI().toString() }
-        store.getLocalFileIfReady(id)?.let { return it.toURI().toString() }
+        val bypassLocal = id in options.bypassLocalTranscodeFileIds ||
+            store.getTranscodeStatus(id) == TranscodeStatus.FAILED
+        if (!bypassLocal) {
+            store.getTranscodedFileIfReady(id)?.let { return it.toURI().toString() }
+            store.getLocalFileIfReady(id)?.let { return it.toURI().toString() }
+        }
     }
     return remote
 }

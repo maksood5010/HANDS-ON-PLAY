@@ -19,6 +19,21 @@ object VideoTranscodeLog {
         Log.i(TAG, "Conversion started for file $fileId ($sourceFileName)")
     }
 
+    fun started(
+        fileId: Int,
+        sourceFileName: String,
+        targetHeightPx: Int,
+        videoBitrate: Int,
+        sourceHeightPx: Int
+    ) {
+        val mbps = videoBitrate / 1_000_000.0
+        Log.i(
+            TAG,
+            "Conversion started for file $fileId ($sourceFileName): " +
+                "source ${sourceHeightPx}p -> ${targetHeightPx}p @ ${"%.1f".format(mbps)} Mbps"
+        )
+    }
+
     fun progress(fileId: Int, percent: Int) {
         Log.i(TAG, "Conversion progress for file $fileId: $percent%")
     }

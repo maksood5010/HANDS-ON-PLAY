@@ -2,8 +2,10 @@ package com.hoi.player.assets
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +28,8 @@ class VideoTranscodeCoordinator @Inject constructor(
 
     private var currentlyPlayingFileId: Int? = null
     private var activeTranscodeFileId: Int? = null
+    private var activeTranscodeJob: Job? = null
+    private var prepareBlockingFileId: Int? = null
     private val dropWindowsByFileId = mutableMapOf<Int, Int>()
     private val lastQueuedAtMsByFileId = mutableMapOf<Int, Long>()
     private val retriedFileIds = mutableSetOf<Int>()
@@ -42,6 +46,48 @@ class VideoTranscodeCoordinator @Inject constructor(
         transcodeScope.launch {
             handleFrameDrop(uri, dropRateFps)
         }
+    }
+
+    suspend fun requestPrepareTranscode(fileId: Int): PrepareTranscodeResult {
+        if (store.getTranscodedFileIfReady(fileId) != null) {
+            return PrepareTranscodeResult.AlreadyReady
+        }
+        val local = store.getLocalFileIfReady(fileId) ?: return PrepareTranscodeResult.NotReady
+        if (transcoder.shouldSkipTranscode(local)) {
+            store.updateTranscodeStatus(fileId, TranscodeStatus.NONE)
+            return PrepareTranscodeResult.Skipped
+        }
+        stateMutex.withLock {
+            prepareBlockingFileId = fileId
+        }
+        queueTranscode(fileId)
+        return PrepareTranscodeResult.Started
+    }
+
+    suspend fun cancelPrepare(fileId: Int) {
+        stateMutex.withLock {
+            if (prepareBlockingFileId == fileId) {
+                prepareBlockingFileId = null
+            }
+            pendingFileIds.remove(fileId)
+        }
+        if (activeTranscodeFileId == fileId) {
+            activeTranscodeJob?.cancel()
+        }
+    }
+
+    suspend fun skipPrepareTranscode(fileId: Int) {
+        stateMutex.withLock {
+            if (prepareBlockingFileId == fileId) {
+                prepareBlockingFileId = null
+            }
+            pendingFileIds.remove(fileId)
+            retriedFileIds.remove(fileId)
+        }
+        if (activeTranscodeFileId == fileId) {
+            activeTranscodeJob?.cancel()
+        }
+        store.resetTranscodeState(fileId)
     }
 
     suspend fun setCurrentlyPlayingFileId(fileId: Int?) {
@@ -174,8 +220,13 @@ class VideoTranscodeCoordinator @Inject constructor(
             pendingFileIds.removeAll { candidate ->
                 store.getTranscodedFileIfReady(candidate) != null
             }
+            val blockingId = prepareBlockingFileId
             val nextFileId = pendingFileIds.firstOrNull { candidate ->
-                shouldStartPendingTranscode(candidate, excludeFileId) &&
+                shouldStartPendingTranscode(
+                    candidate,
+                    excludeFileId,
+                    prepareBlockingFileId = blockingId
+                ) &&
                     store.getTranscodeStatus(candidate) == TranscodeStatus.PENDING &&
                     store.getTranscodedFileIfReady(candidate) == null
             } ?: return@withLock null
@@ -184,13 +235,17 @@ class VideoTranscodeCoordinator @Inject constructor(
             nextFileId
         } ?: return
 
-        transcodeScope.launch {
+        val job = transcodeScope.launch {
             runTranscodeJob(fileIdToRun)
+        }
+        stateMutex.withLock {
+            activeTranscodeJob = job
         }
     }
 
     private suspend fun runTranscodeJob(fileId: Int) {
         var lastLoggedPercent = -1
+        val isPrepareJob = stateMutex.withLock { prepareBlockingFileId == fileId }
         try {
             if (store.getTranscodedFileIfReady(fileId) != null) {
                 _events.emit(TranscodeEvent.Ready(fileId))
@@ -219,15 +274,38 @@ class VideoTranscodeCoordinator @Inject constructor(
                 return
             }
 
+            if (transcoder.shouldSkipTranscode(input)) {
+                VideoTranscodeLog.skipped(
+                    fileId,
+                    "source already H.264 within display resolution and bitrate limits"
+                )
+                store.updateTranscodeStatus(fileId, TranscodeStatus.NONE)
+                return
+            }
+
+            val plan = transcoder.planTranscode(input)
+            if (plan == null) {
+                VideoTranscodeLog.error(fileId, "could not read video metadata")
+                store.updateTranscodeStatus(fileId, TranscodeStatus.FAILED)
+                _events.emit(TranscodeEvent.Failed(fileId))
+                return
+            }
+
             val outputName = VideoAssetEntry.transcodedFileNameFor(fileId)
             store.updateTranscodeStatus(fileId, TranscodeStatus.RUNNING, outputName)
             _events.emit(TranscodeEvent.Running(fileId, progress = 0f))
 
             val output = store.transcodedFileFor(entry.copy(transcodedFileName = outputName))
-            VideoTranscodeLog.started(fileId, input.name)
+            VideoTranscodeLog.started(
+                fileId,
+                input.name,
+                plan.targetHeightPx,
+                plan.videoBitrate,
+                plan.source.displayHeight
+            )
             VideoTranscodeLog.progress(fileId, 0)
 
-            withContext(NonCancellable) {
+            val transcodeBlock: suspend () -> Unit = {
                 transcoder.transcode(input, output) { progress ->
                     val percent = (progress * 100).toInt().coerceIn(0, 100)
                     if (percent >= lastLoggedPercent + 10 || percent == 100) {
@@ -237,10 +315,22 @@ class VideoTranscodeCoordinator @Inject constructor(
                     _events.emit(TranscodeEvent.Running(fileId, progress))
                 }
             }
+            if (isPrepareJob) {
+                transcodeBlock()
+            } else {
+                withContext(NonCancellable) {
+                    transcodeBlock()
+                }
+            }
             store.updateTranscodeStatus(fileId, TranscodeStatus.READY, outputName)
+            store.deleteLegacyTranscodedFile(fileId)
             _events.emit(TranscodeEvent.Ready(fileId))
             VideoTranscodeLog.completed(fileId, output.name, output.length())
         } catch (t: Throwable) {
+            if (t is CancellationException) {
+                VideoTranscodeLog.skipped(fileId, "conversion cancelled")
+                return
+            }
             VideoTranscodeLog.error(fileId, t.message ?: "conversion failed", t)
             val entry = store.getEntry(fileId)
             if (entry != null) {
@@ -264,7 +354,11 @@ class VideoTranscodeCoordinator @Inject constructor(
             _events.emit(TranscodeEvent.Failed(fileId))
         } finally {
             stateMutex.withLock {
+                if (prepareBlockingFileId == fileId) {
+                    prepareBlockingFileId = null
+                }
                 activeTranscodeFileId = null
+                activeTranscodeJob = null
             }
             tryStartPendingJobs(excludeFileId = currentlyPlayingFileId)
         }

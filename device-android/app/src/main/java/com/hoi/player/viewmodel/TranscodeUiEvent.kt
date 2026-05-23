@@ -7,6 +7,7 @@ sealed class TranscodeUiEvent {
     data class Running(val fileId: Int, val progress: Float) : TranscodeUiEvent()
     data class Ready(val fileId: Int) : TranscodeUiEvent()
     data class Failed(val fileId: Int) : TranscodeUiEvent()
+    data class PrepareSkipped(val fileId: Int) : TranscodeUiEvent()
 
     companion object {
         fun from(event: TranscodeEvent): TranscodeUiEvent = when (event) {

@@ -11,15 +11,18 @@ import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultAssetLoaderFactory
 import androidx.media3.transformer.DefaultDecoderFactory
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -48,18 +51,44 @@ class VideoTranscoder @Inject constructor(
     private val transcodeHandler = Handler(transcodeThread.looper)
     private val transcodeDispatcher = transcodeHandler.asCoroutineDispatcher()
 
+    data class TranscodePlan(
+        val targetHeightPx: Int,
+        val videoBitrate: Int,
+        val displayHeightPx: Int,
+        val source: VideoSourceInfo
+    )
+
+    fun planTranscode(input: File): TranscodePlan? {
+        val source = VideoSourceInspector.probe(input) ?: return null
+        val displayHeight = VideoTranscodeProfile.displayHeightPx(context)
+        val targetHeight = VideoTranscodeProfile.computeTargetHeightPx(
+            source.displayHeight,
+            displayHeight
+        )
+        val videoBitrate = VideoTranscodeProfile.bitrateForHeight(targetHeight)
+        return TranscodePlan(targetHeight, videoBitrate, displayHeight, source)
+    }
+
+    fun shouldSkipTranscode(input: File): Boolean {
+        val plan = planTranscode(input) ?: return false
+        return VideoTranscodeProfile.shouldSkipTranscode(plan.source, plan.targetHeightPx)
+    }
+
     suspend fun transcode(
         input: File,
         output: File,
         onProgress: suspend (Float) -> Unit = {}
     ) {
+        val plan = planTranscode(input)
+            ?: throw IllegalStateException("Could not read video metadata from ${input.name}")
+
         val partFile = File(output.parentFile, "${output.name}.part")
         partFile.parentFile?.mkdirs()
         if (partFile.exists() && partFile.length() == 0L) partFile.delete()
 
         withContext(transcodeDispatcher) {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            runTranscodeWithDecoderFallback(input, partFile, onProgress)
+            runTranscodeWithDecoderFallback(input, partFile, plan, onProgress)
         }
 
         if (output.exists() && !output.delete()) {
@@ -78,30 +107,32 @@ class VideoTranscoder @Inject constructor(
     private suspend fun runTranscodeWithDecoderFallback(
         input: File,
         partFile: File,
+        plan: TranscodePlan,
         onProgress: suspend (Float) -> Unit
     ) {
         try {
-            runTranscode(input, partFile, onProgress, preferSoftwareDecoder = false)
+            runTranscode(input, partFile, plan, onProgress, preferSoftwareDecoder = false)
         } catch (first: ExportException) {
             if (!isDecoderCodecExportException(first)) throw first
             partFile.delete()
-            runTranscode(input, partFile, onProgress, preferSoftwareDecoder = true)
+            runTranscode(input, partFile, plan, onProgress, preferSoftwareDecoder = true)
         }
     }
 
     private suspend fun runTranscode(
         input: File,
         partFile: File,
+        plan: TranscodePlan,
         onProgress: suspend (Float) -> Unit,
         preferSoftwareDecoder: Boolean
     ) = suspendCancellableCoroutine { cont ->
-        val exportFinished = AtomicBoolean(false)
-
         val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(input.toURI().toString()))
             .setEffects(
                 Effects(
                     /* audioProcessors = */ emptyList(),
-                    /* videoEffects = */ listOf(Presentation.createForHeight(SIGNAGE_HEIGHT_PX))
+                    /* videoEffects = */ listOf(
+                        Presentation.createForHeight(plan.targetHeightPx)
+                    )
                 )
             )
             .build()
@@ -114,22 +145,30 @@ class VideoTranscoder @Inject constructor(
             .setEnableDecoderFallback(true)
             .apply {
                 if (preferSoftwareDecoder) {
-                    setMediaCodecSelector(MediaCodecSelector.PREFER_SOFTWARE)
+                    setMediaCodecSelector(preferSoftwareMediaCodecSelector())
                 }
             }
+            .build()
+
+        val encoderFactory = DefaultEncoderFactory.Builder(context)
+            .setRequestedVideoEncoderSettings(
+                VideoEncoderSettings.Builder()
+                    .setBitrate(plan.videoBitrate)
+                    .build()
+            )
             .build()
 
         val transformer = Transformer.Builder(context)
             .setLooper(transcodeThread.looper)
             .setVideoMimeType(MimeTypes.VIDEO_H264)
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
+            .setEncoderFactory(encoderFactory)
             .setAssetLoaderFactory(
                 DefaultAssetLoaderFactory(context, decoderFactory, Clock.DEFAULT)
             )
             .addListener(
                 object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        exportFinished.set(true)
                         progressJob?.cancel()
                         if (cont.isActive) cont.resume(Unit)
                     }
@@ -139,7 +178,6 @@ class VideoTranscoder @Inject constructor(
                         exportResult: ExportResult,
                         exportException: ExportException
                     ) {
-                        exportFinished.set(true)
                         progressJob?.cancel()
                         partFile.delete()
                         if (cont.isActive) cont.resumeWithException(exportException)
@@ -167,16 +205,27 @@ class VideoTranscoder @Inject constructor(
     }
 
     companion object {
-        private const val SIGNAGE_HEIGHT_PX = 480
         private const val PROGRESS_POLL_MS = 2_000L
 
-        internal fun isDecoderCodecExportException(exception: ExportException): Boolean {
-            return when (exception.errorCode) {
+        private fun preferSoftwareMediaCodecSelector(): MediaCodecSelector =
+            MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                MediaCodecUtil.getDecoderInfos(
+                    mimeType,
+                    requiresSecureDecoder,
+                    requiresTunnelingDecoder
+                ).sortedByDescending { it.softwareOnly }
+            }
+
+        internal fun isDecoderCodecExport(errorCode: Int, message: String?): Boolean {
+            return when (errorCode) {
                 ExportException.ERROR_CODE_DECODER_INIT_FAILED,
                 ExportException.ERROR_CODE_DECODING_FAILED,
                 ExportException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> true
-                else -> exception.message?.contains("Codec", ignoreCase = true) == true
+                else -> message?.contains("Codec", ignoreCase = true) == true
             }
         }
+
+        internal fun isDecoderCodecExportException(exception: ExportException): Boolean =
+            isDecoderCodecExport(exception.errorCode, exception.message)
     }
 }

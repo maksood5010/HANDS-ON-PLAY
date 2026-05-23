@@ -44,7 +44,8 @@ data class VideoAssetEntry(
     fun transcodeStatusOrNone(): TranscodeStatus = transcodeStatus ?: TranscodeStatus.NONE
 
     companion object {
-        fun transcodedFileNameFor(fileId: Int): String = "$fileId.transcoded.mp4"
+        fun transcodedFileNameFor(fileId: Int): String =
+            VideoTranscodeProfile.transcodedFileNameFor(fileId)
 
         fun fromPlaylistItem(item: PlaylistItem): VideoAssetEntry? {
             val fileId = item.fileId ?: return null
