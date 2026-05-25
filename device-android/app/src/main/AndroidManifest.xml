@@ -26,7 +26,8 @@
         android:theme="@style/Theme.HoiPlayer">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -48,6 +49,10 @@
         </receiver>
 
         <receiver
+            android:name=".utils.InstallResultReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".boot.BootReceiver"
             android:enabled="true"
             android:exported="true"
@@ -61,7 +66,8 @@
         <service
             android:name=".boot.BootForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false"  />
 
         <service
             android:name=".playback.PlaybackService"

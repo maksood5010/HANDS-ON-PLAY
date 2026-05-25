@@ -5,6 +5,8 @@ import {
   deleteDevice,
   updateDevicePlaylist
 } from "../models/deviceModel.js";
+import { requestDeviceStatus } from "../mqtt/deviceStatusRequest.js";
+import { isMqttConnected } from "../utils/mqttClient.js";
 import { getPlaylistById } from "../models/playlistModel.js";
 import { canUserAccessGroup } from "../models/deviceGroupModel.js";
 import pool from "../config/db.js";
@@ -61,6 +63,60 @@ export const getDevicesHandler = async (req, res) => {
   } catch (error) {
     console.error("Error fetching devices:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+
+function isDeviceRecentlySeen(device) {
+  if (!device?.last_seen_at) return false;
+  const last = new Date(device.last_seen_at).getTime();
+  return Number.isFinite(last) && Date.now() - last < ONLINE_WINDOW_MS;
+}
+
+// Live playback/health via MQTT request/response (not stored in DB)
+export const getDeviceStatusHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.company_id;
+
+    const device = await getDeviceById(parseInt(id), companyId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: "Device not found" });
+    }
+
+    if (!isDeviceRecentlySeen(device)) {
+      return res.status(503).json({
+        success: false,
+        reason: "offline",
+        error: "Device is offline",
+      });
+    }
+
+    if (!isMqttConnected()) {
+      return res.status(503).json({
+        success: false,
+        reason: "mqtt_unavailable",
+        error: "MQTT is not connected",
+      });
+    }
+
+    const status = await requestDeviceStatus(device.device_key);
+    return res.json({ success: true, status });
+  } catch (error) {
+    const message = error?.message ?? "Failed to fetch device status";
+    if (message.includes("timed out")) {
+      return res.status(504).json({
+        success: false,
+        reason: "timeout",
+        error: message,
+      });
+    }
+    console.error("Error fetching device status:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 };
 

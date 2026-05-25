@@ -2,44 +2,118 @@ package com.hoi.player
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.asFlow
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.Fragment
 import com.google.firebase.messaging.FirebaseMessaging
+import com.hoi.player.BuildConfig
 import com.hoi.player.databinding.ActivityMainBinding
+import com.hoi.player.boot.BootForegroundService
 import com.hoi.player.fragment.HomeFragment
 import com.hoi.player.fragment.SetupDeviceFragment
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.KioskUtil
 import com.hoi.player.utils.PreferencesManager
+import com.hoi.player.ui.AppUpdateProgressDialog
+import com.hoi.player.viewmodel.AppUpdateUiState
+import com.hoi.player.viewmodel.AppUpdateViewModel
 import com.hoi.player.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlin.getValue
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
     private val viewModel: MainViewModel by viewModels()
+    private val appUpdateViewModel: AppUpdateViewModel by viewModels()
+    private var appUpdateProgressDialog: AppUpdateProgressDialog? = null
+
     val binding: ActivityMainBinding by lazy {
         ActivityMainBinding.inflate(layoutInflater)
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemBars()
-//        KioskUtil.setDeviceOwner(this)
+        KioskUtil.setDeviceOwner(this)
 //        KioskUtil.removeDeviceOwner(this)
-        val deviceKey= PreferencesManager.get<String>("device_key")
-        if (deviceKey==null){
-            replaceFragment(SetupDeviceFragment(),false)
-        }else{
-            replaceFragment(HomeFragment(),false)
+
+        Log.d(
+            TAG,
+            "app version=${BuildConfig.VERSION_NAME} (versionCode=${BuildConfig.VERSION_CODE})"
+        )
+
+        appUpdateViewModel.clearUpdateError()
+        appUpdateProgressDialog = AppUpdateProgressDialog(this)
+        observeAppUpdateUiState()
+
+        val deviceKey = PreferencesManager.get<String>(Constants.PREF_DEVICE_KEY)
+        if (deviceKey == null) {
+            replaceFragment(SetupDeviceFragment(), false)
+        } else {
+            BootForegroundService.startIfNeeded(this)
+            replaceFragment(HomeFragment(), false)
         }
 
+        handleAppUpdateIntent(intent)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAppUpdateIntent(intent)
+    }
+
+    private fun observeAppUpdateUiState() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                appUpdateViewModel.updateUiState.asFlow().collect { state ->
+                    renderAppUpdateState(state)
+                }
+            }
+        }
+    }
+
+    private fun renderAppUpdateState(state: AppUpdateUiState) {
+        when (state) {
+            is AppUpdateUiState.Error -> {
+                appUpdateProgressDialog?.dismiss()
+                Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                appUpdateViewModel.clearUpdateError()
+            }
+            is AppUpdateUiState.Idle,
+            is AppUpdateUiState.Complete -> appUpdateProgressDialog?.dismiss()
+            else -> appUpdateProgressDialog?.bind(state)
+        }
+    }
+
+    override fun onDestroy() {
+        appUpdateProgressDialog?.release()
+        appUpdateProgressDialog = null
+        super.onDestroy()
+    }
+
+    private fun handleAppUpdateIntent(intent: android.content.Intent?) {
+        val url = intent?.getStringExtra(Constants.EXTRA_APP_UPDATE_URL)?.trim().orEmpty()
+        if (url.isNotEmpty()) {
+            appUpdateViewModel.onUpdateRequested(url)
+            intent?.removeExtra(Constants.EXTRA_APP_UPDATE_URL)
+        }
     }
 
     override fun onResume() {

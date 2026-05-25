@@ -16,6 +16,7 @@ class PlaylistItemExtensionsTest {
             displayOrder = 1,
             fileType = "video",
             fileUrl = "https://cdn.example.com/video.mp4",
+            fileSize = null,
             originalName = "v.mp4",
             mimeType = "video/mp4"
         )
@@ -31,6 +32,7 @@ class PlaylistItemExtensionsTest {
             displayOrder = 1,
             fileType = "video",
             fileUrl = "",
+            fileSize = null,
             originalName = "v.mp4",
             mimeType = "video/mp4"
         )
@@ -41,7 +43,7 @@ class PlaylistItemExtensionsTest {
     fun isVideo_identifiesVideoType() {
         val video = PlaylistItem(
             id = 1, fileId = 1, duration = null, displayOrder = 1,
-            fileType = "video", fileUrl = "u",
+            fileType = "video", fileUrl = "u", fileSize = null,
             originalName = null, mimeType = null
         )
         val image = video.copy(fileType = "image")

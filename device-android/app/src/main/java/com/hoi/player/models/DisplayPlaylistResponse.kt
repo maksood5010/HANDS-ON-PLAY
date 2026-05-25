@@ -22,6 +22,7 @@ data class PlaylistItem(
     @SerializedName("display_order") val displayOrder: Int?,
     @SerializedName("file_type") val fileType: String?,
     @SerializedName("file_url") val fileUrl: String?,
+    @SerializedName("file_size") val fileSize: Long?,
     @SerializedName("original_name") val originalName: String?,
     @SerializedName("mime_type") val mimeType: String?
 )

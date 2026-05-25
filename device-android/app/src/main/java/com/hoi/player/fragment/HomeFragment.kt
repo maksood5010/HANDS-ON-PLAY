@@ -18,16 +18,36 @@ import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import com.hoi.player.MainActivity
 import com.hoi.player.adapter.PlaylistPagerAdapter
+import com.hoi.player.assets.VideoAssetStore
+import com.hoi.player.assets.VideoTranscodeLog
 import com.hoi.player.databinding.FragmentHomeBinding
+import com.hoi.player.models.isVideo
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
+import com.hoi.player.ui.TranscodeProgressDialog
+import com.hoi.player.heartbeat.PlaybackHeartbeatCollector
+import com.hoi.player.models.resolvePlaybackUrl
+import com.hoi.player.viewmodel.AppUpdateUiState
+import com.hoi.player.viewmodel.AppUpdateViewModel
 import com.hoi.player.viewmodel.MainViewModel
+import com.hoi.player.viewmodel.PlaybackGateState
+import com.hoi.player.viewmodel.TranscodeUiEvent
 import com.bumptech.glide.Glide
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class HomeFragment : Fragment() {
 
     private val viewModel: MainViewModel by activityViewModels()
+    private val appUpdateViewModel: AppUpdateViewModel by activityViewModels()
+
+    @Inject
+    lateinit var videoAssetStore: VideoAssetStore
+
+    @Inject
+    lateinit var playbackHeartbeatCollector: PlaybackHeartbeatCollector
 
     private val binding: FragmentHomeBinding by lazy {
         FragmentHomeBinding.inflate(layoutInflater)
@@ -40,14 +60,19 @@ class HomeFragment : Fragment() {
     private val hideErrorRunnable = Runnable { hideError() }
 
     private lateinit var adapter: PlaylistPagerAdapter
+    private var transcodeProgressDialog: TranscodeProgressDialog? = null
 
     private var lastConnectivityFetchAtMs = 0L
+    private var playbackPausedForAppUpdate = false
 
     private val playlistEventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Constants.ACTION_PLAYLIST_REFRESH ->
                     deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
+                Constants.ACTION_RESTART_PLAYBACK -> {
+                    if (::adapter.isInitialized) adapter.restartPlayback()
+                }
                 Constants.ACTION_CONNECTIVITY_RESTORED ->
                     fetchPlaylistIfIdleOnConnectivityRestore()
             }
@@ -71,7 +96,7 @@ class HomeFragment : Fragment() {
             }
         }
 
-        deviceKey = PreferencesManager.get<String>("device_key")
+        deviceKey = PreferencesManager.get<String>(Constants.PREF_DEVICE_KEY)
         if (deviceKey == null) {
             Log.e("HomeFragment", "No device key found")
             showError("Device not set up. Open settings and enter the device key.")
@@ -79,12 +104,25 @@ class HomeFragment : Fragment() {
             return
         }
 
+        transcodeProgressDialog = TranscodeProgressDialog(requireContext()) { fileId ->
+            viewModel.onSkipPrepareTranscode(fileId)
+        }
+
         adapter = PlaylistPagerAdapter(
             appContext = requireContext().applicationContext,
+            videoAssetStore = videoAssetStore,
+            playbackHeartbeatCollector = playbackHeartbeatCollector,
             onVideoEnded = { advanceToNext() },
             onVideoError = {
                 handler.postDelayed({ advanceToNext() }, 2000)
-            }
+            },
+            onVideoPlaybackStarted = { fileId -> viewModel.onVideoPlaybackStarted(fileId) },
+            onVideoPlaybackIdle = { fileId -> viewModel.onVideoPlaybackIdle(fileId) },
+            shouldAllowPlayback = { fileId ->
+                val gate = viewModel.playbackGate.value
+                gate !is PlaybackGateState.Blocked || gate.fileId != fileId
+            },
+            playbackUriOptions = { viewModel.currentPlaybackUriOptions() }
         )
 
         binding.viewPager.adapter = adapter
@@ -100,7 +138,9 @@ class HomeFragment : Fragment() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
                 handler.removeCallbacks(advanceRunnable)
+                notifyCurrentVideoSelected(position)
                 adapter.currentPosition = position
+                prioritizeCurrentVideoDownload(position)
                 startAdvanceForPosition(position)
             }
         })
@@ -118,8 +158,9 @@ class HomeFragment : Fragment() {
 
             if (sortedItems.isNotEmpty()) {
                 binding.viewPager.setCurrentItem(0, false)
+                notifyCurrentVideoSelected(0)
                 adapter.currentPosition = 0
-                adapter.prefetchAdjacentVideo(0)
+                prioritizeCurrentVideoDownload(0)
                 startAdvanceForPosition(0)
             }
         }
@@ -149,7 +190,68 @@ class HomeFragment : Fragment() {
             }
         }
 
-        viewModel.startHeartbeat(deviceKey!!)
+        viewModel.playbackGate.observe(viewLifecycleOwner) { gate ->
+            when (gate) {
+                is PlaybackGateState.Blocked -> {
+                    playbackHeartbeatCollector.updateHealthWarning(isWarning = true)
+                    transcodeProgressDialog?.show(
+                        fileId = gate.fileId,
+                        label = gate.label,
+                        progressPercent = gate.progressPercent
+                    )
+                    if (::adapter.isInitialized) {
+                        adapter.pausePlayback()
+                    }
+                }
+                is PlaybackGateState.Open -> {
+                    playbackHeartbeatCollector.updateHealthWarning(isWarning = false)
+                    transcodeProgressDialog?.dismiss()
+                    if (::adapter.isInitialized) {
+                        adapter.releasePlaybackGate()
+                    }
+                }
+            }
+        }
+
+        appUpdateViewModel.updateUiState.observe(viewLifecycleOwner) { state ->
+            if (!::adapter.isInitialized) return@observe
+            if (state.shouldPausePlayback()) {
+                adapter.pausePlayback()
+                playbackPausedForAppUpdate = true
+            } else if (playbackPausedForAppUpdate &&
+                (state is AppUpdateUiState.Idle || state is AppUpdateUiState.Error)
+            ) {
+                playbackPausedForAppUpdate = false
+                adapter.resumeCurrentVideo()
+            }
+        }
+
+        viewModel.transcodeEvent.observe(viewLifecycleOwner) { event ->
+            when (event) {
+                is TranscodeUiEvent.Ready -> {
+                    VideoTranscodeLog.usingConvertedFile(event.fileId)
+                    if (!isCurrentTranscodeFileId(event.fileId)) return@observe
+                    if (viewModel.shouldAdvanceOnTranscodeReady(event.fileId)) {
+                        advanceToNext()
+                    } else {
+                        adapter.onPlaylistRefreshed()
+                    }
+                }
+                is TranscodeUiEvent.Failed -> {
+                    if (isCurrentTranscodeFileId(event.fileId)) {
+                        adapter.onPlaylistRefreshed()
+                    }
+                }
+                is TranscodeUiEvent.PrepareSkipped -> {
+                    if (isCurrentTranscodeFileId(event.fileId)) {
+                        adapter.onPlaylistRefreshed()
+                    }
+                }
+                is TranscodeUiEvent.Queued,
+                is TranscodeUiEvent.Running -> Unit
+            }
+        }
+
         viewModel.fetchPlaylist(deviceKey!!)
     }
 
@@ -169,6 +271,56 @@ class HomeFragment : Fragment() {
                 binding.placeholderImage.setImageResource(com.hoi.player.R.drawable.placeholder)
             }
         }
+    }
+
+    private fun notifyCurrentVideoSelected(position: Int) {
+        val items = if (::adapter.isInitialized) adapter.currentList else return
+        if (position !in items.indices) {
+            playbackHeartbeatCollector.updateDisplayedStaticItem(
+                playbackUrl = null,
+                displayLabel = null
+            )
+            viewModel.onCurrentVideoSelected(fileId = null)
+            return
+        }
+        val item = items[position]
+        val playbackUrl = item.resolvePlaybackUrl()
+        val displayLabel = item.originalName?.takeIf { it.isNotBlank() } ?: item.fileType
+        if (!item.isVideo()) {
+            playbackHeartbeatCollector.updateDisplayedStaticItem(
+                playbackUrl = playbackUrl,
+                displayLabel = displayLabel
+            )
+            viewModel.onCurrentVideoSelected(fileId = null)
+            return
+        }
+        playbackHeartbeatCollector.updateCurrentItemLabel(
+            displayLabel = displayLabel,
+            playbackUrl = playbackUrl
+        )
+        viewModel.onCurrentVideoSelected(
+            fileId = item.fileId,
+            label = displayLabel
+        )
+    }
+
+    private fun isCurrentTranscodeFileId(fileId: Int): Boolean {
+        if (!::adapter.isInitialized) return false
+        val pos = binding.viewPager.currentItem
+        val items = adapter.currentList
+        if (pos !in items.indices) return false
+        return items[pos].fileId == fileId
+    }
+
+    private fun prioritizeCurrentVideoDownload(position: Int) {
+        val items = adapter.currentList
+        if (position !in items.indices) return
+        val item = items[position]
+        if (!item.isVideo()) return
+        viewModel.prioritizeVideoDownload(
+            playlist = viewModel.playlistResult.value?.playlist,
+            fileId = item.fileId
+        )
     }
 
     private fun startAdvanceForPosition(position: Int) {
@@ -216,8 +368,10 @@ class HomeFragment : Fragment() {
     override fun onDestroyView() {
         handler.removeCallbacks(advanceRunnable)
         handler.removeCallbacks(hideErrorRunnable)
+        transcodeProgressDialog?.dismiss()
+        transcodeProgressDialog = null
         binding.viewPager.adapter = null
-        viewModel.stopHeartbeat()
+        playbackHeartbeatCollector.detach()
         super.onDestroyView()
     }
 
@@ -262,6 +416,7 @@ class HomeFragment : Fragment() {
         super.onStart()
         val filter = IntentFilter().apply {
             addAction(Constants.ACTION_PLAYLIST_REFRESH)
+            addAction(Constants.ACTION_RESTART_PLAYBACK)
             addAction(Constants.ACTION_CONNECTIVITY_RESTORED)
         }
         ContextCompat.registerReceiver(
@@ -270,6 +425,9 @@ class HomeFragment : Fragment() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        if (::adapter.isInitialized && adapter.itemCount > 0) {
+            adapter.resumeCurrentVideo()
+        }
         if (shouldFetchOnConnectivityRestore() &&
             ConnectivityRestoreMonitor.isWifiValidated(requireContext())
         ) {

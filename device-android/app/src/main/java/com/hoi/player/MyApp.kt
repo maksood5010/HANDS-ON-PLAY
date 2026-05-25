@@ -6,8 +6,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.hoi.player.di.AppEntryPoint
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.PreferencesManager
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
 
@@ -23,6 +25,10 @@ class MyApp : Application() {
         PreferencesManager.with(this)
         connectivityRestoreMonitor = ConnectivityRestoreMonitor(applicationContext)
         connectivityRestoreMonitor.start()
+
+        EntryPointAccessors.fromApplication(this, AppEntryPoint::class.java)
+            .appForegroundTracker()
+            .start()
     }
 
     override fun onTerminate() {
@@ -37,7 +43,7 @@ class MyApp : Application() {
 
         @get:OptIn(UnstableApi::class)
         val exoCache: SimpleCache by lazy {
-            val cacheSize = 500 * 1024 * 1024L // 500MB
+            val cacheSize = 100 * 1024 * 1024L // 100MB stream fallback only
             val cacheEvictor = LeastRecentlyUsedCacheEvictor(cacheSize)
             val databaseProvider = StandaloneDatabaseProvider(instance)
             SimpleCache(File(instance.cacheDir, "exo_cache"), cacheEvictor, databaseProvider)

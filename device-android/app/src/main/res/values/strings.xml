@@ -2,4 +2,14 @@
     <string name="app_name">Hands-On Play</string>
     <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="transcode_dialog_title">Optimizing video</string>
+    <string name="transcode_dialog_status_starting">Starting…</string>
+    <string name="transcode_dialog_status_percent">%1$d%% complete</string>
+    <string name="transcode_dialog_skip">Skip</string>
+    <string name="app_update_dialog_title">Updating app</string>
+    <string name="app_update_dialog_status_starting">Preparing…</string>
+    <string name="app_update_dialog_status_stopping">Stopping playback…</string>
+    <string name="app_update_dialog_status_percent">Downloading… %1$d%%</string>
+    <string name="app_update_dialog_status_installing">Installing…</string>
+    <string name="app_update_dialog_status_complete">Update installed. The app will restart shortly.</string>
 </resources>

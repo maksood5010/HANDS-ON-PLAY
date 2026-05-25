@@ -3,6 +3,7 @@ import {
   createDeviceHandler,
   getDevicesHandler,
   getDeviceHandler,
+  getDeviceStatusHandler,
   deleteDeviceHandler,
   assignPlaylistHandler
 } from "../controllers/deviceController.js";
@@ -16,6 +17,7 @@ router.use(authenticate);
 // Device CRUD routes
 router.post("/devices", createDeviceHandler);
 router.get("/devices", getDevicesHandler);
+router.get("/devices/:id/status", getDeviceStatusHandler);
 router.get("/devices/:id", getDeviceHandler);
 router.delete("/devices/:id", deleteDeviceHandler);
 router.put("/devices/:id/playlist", assignPlaylistHandler);

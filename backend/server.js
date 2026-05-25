@@ -14,6 +14,8 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import companyRoutes from "./routes/companyRoutes.js";
 import { startScheduledPlaylistPushJob } from "./jobs/scheduledPlaylistPush.js";
 import { getSpacesPublicBaseUrl } from "./utils/spacesClient.js";
+import { registerMqttHandlers } from "./mqtt/handlers/index.js";
+import { startMqttClient, stopMqttClient } from "./utils/mqttClient.js";
 
 dotenv.config();
 
@@ -69,7 +71,7 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/build", "index.html"));
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT} (all interfaces)`);
   try {
     startScheduledPlaylistPushJob({
@@ -79,4 +81,21 @@ app.listen(PORT, "0.0.0.0", () => {
   } catch (e) {
     console.warn("Failed to start scheduled playlist push job", e?.message ?? e);
   }
+  try {
+    registerMqttHandlers();
+    startMqttClient();
+  } catch (e) {
+    console.warn("Failed to start MQTT client", e?.message ?? e);
+  }
 });
+
+function shutdown(signal) {
+  console.log(`Received ${signal}, shutting down`);
+  Promise.resolve(stopMqttClient())
+    .finally(() => {
+      server.close(() => process.exit(0));
+    });
+}
+
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.once("SIGTERM", () => shutdown("SIGTERM"));

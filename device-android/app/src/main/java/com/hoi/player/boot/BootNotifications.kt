@@ -9,10 +9,11 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.hoi.player.MainActivity
 import com.hoi.player.R
+import com.hoi.player.mqtt.MqttConnectionState
 
 internal object BootNotifications {
-    private const val CHANNEL_ID = "boot_autostart"
-    private const val CHANNEL_NAME = "Auto-start"
+    private const val CHANNEL_ID = "device_connectivity"
+    private const val CHANNEL_NAME = "Device connectivity"
     private const val NOTIFICATION_ID = 1001
 
     fun ensureChannel(context: Context) {
@@ -23,12 +24,12 @@ internal object BootNotifications {
         val channel = NotificationChannel(
             CHANNEL_ID,
             CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_HIGH
+            NotificationManager.IMPORTANCE_LOW
         )
         manager.createNotificationChannel(channel)
     }
 
-    fun foregroundNotification(context: Context): Notification {
+    fun foregroundNotification(context: Context, mqttState: MqttConnectionState): Notification {
         ensureChannel(context)
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
@@ -41,21 +42,24 @@ internal object BootNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val statusText = when (mqttState) {
+            MqttConnectionState.CONNECTED -> "Connected to MQTT"
+            MqttConnectionState.CONNECTING -> "Connecting to MQTT…"
+            MqttConnectionState.WAITING_FOR_WIFI -> "Waiting for WiFi…"
+            MqttConnectionState.ERROR -> "MQTT connection error"
+            MqttConnectionState.DISCONNECTED -> "Device service running"
+        }
+
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(context.getString(R.string.app_name))
-            .setContentText("Starting after reboot…")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText(statusText)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
-            .setAutoCancel(true)
             .setContentIntent(openPendingIntent)
-            // Best-effort for "open ASAP": some devices/OS versions may allow a full-screen intent
-            // to bring the activity forward. If not allowed, tapping the notification still opens the app.
-            .setFullScreenIntent(openPendingIntent, true)
             .build()
     }
 
     fun notificationId(): Int = NOTIFICATION_ID
 }
-

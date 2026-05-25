@@ -1,72 +1,112 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#fff"
+    android:fillViewport="true"
     tools:context=".fragment.SetupDeviceFragment">
 
-    <ImageView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:adjustViewBounds="true"
-        android:src="@drawable/logo"
-        android:paddingHorizontal="100dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="@+id/btnSubmit"
-        app:layout_constraintStart_toStartOf="@+id/btnSubmit"
-        app:layout_constraintTop_toBottomOf="@+id/btnSubmit" />
-
-    <TextView
-        android:id="@+id/textView"
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="50dp"
-        android:text="Setup device"
-        android:textSize="30sp"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:paddingBottom="32dp">
 
-    <EditText
-        android:id="@+id/etBaseUrl"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_margin="20dp"
-        android:ems="16"
-        android:hint="Base API URL (http://...:5041/)"
-        android:importantForAutofill="no"
-        android:inputType="textUri"
-        android:paddingVertical="24dp"
-        android:textSize="22sp"
-        app:layout_constraintEnd_toEndOf="@+id/textView"
-        app:layout_constraintStart_toStartOf="@+id/textView"
-        app:layout_constraintTop_toBottomOf="@+id/textView" />
+        <ImageView
+            android:id="@+id/logoImage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:adjustViewBounds="true"
+            android:paddingHorizontal="100dp"
+            android:src="@drawable/logo"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="@+id/btnSubmit"
+            app:layout_constraintStart_toStartOf="@+id/btnSubmit"
+            app:layout_constraintTop_toBottomOf="@+id/btnSubmit" />
 
-    <EditText
-        android:id="@+id/etDeviceKey"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_margin="20dp"
-        android:ems="16"
-        android:textSize="30sp"
-        android:hint="Enter the device Key"
-        android:importantForAutofill="no"
-        android:inputType="text"
-        android:paddingVertical="24dp"
-        app:layout_constraintEnd_toEndOf="@+id/textView"
-        app:layout_constraintStart_toStartOf="@+id/textView"
-        app:layout_constraintTop_toBottomOf="@+id/etBaseUrl" />
+        <TextView
+            android:id="@+id/textView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="50dp"
+            android:text="Setup device"
+            android:textSize="30sp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
-    <Button
-        android:id="@+id/btnSubmit"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_margin="20dp"
-        android:text="Submit"
-        android:paddingVertical="24dp"
-        android:textSize="30sp"
-        app:layout_constraintEnd_toEndOf="@+id/etDeviceKey"
-        app:layout_constraintStart_toStartOf="@+id/etDeviceKey"
-        app:layout_constraintTop_toBottomOf="@+id/etDeviceKey" />
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <EditText
+            android:id="@+id/etBaseUrl"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:ems="16"
+            android:hint="Base API URL (http://...:5041/)"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:paddingVertical="24dp"
+            android:textSize="22sp"
+            app:layout_constraintEnd_toEndOf="@+id/textView"
+            app:layout_constraintStart_toStartOf="@+id/textView"
+            app:layout_constraintTop_toBottomOf="@+id/textView" />
+
+        <EditText
+            android:id="@+id/etMqttBrokerUrl"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:visibility="gone"
+            android:ems="16"
+            android:hint="MQTT Broker URL (mqtt://...:1883)"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:paddingVertical="24dp"
+            android:textSize="22sp"
+            app:layout_constraintEnd_toEndOf="@+id/textView"
+            app:layout_constraintStart_toStartOf="@+id/textView"
+            app:layout_constraintTop_toBottomOf="@+id/etBaseUrl" />
+
+        <EditText
+            android:id="@+id/etMqttTopicPrefix"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:ems="16"
+            android:visibility="gone"
+            android:hint="MQTT topic prefix (hoi/v1)"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:paddingVertical="24dp"
+            android:textSize="22sp"
+            app:layout_constraintEnd_toEndOf="@+id/textView"
+            app:layout_constraintStart_toStartOf="@+id/textView"
+            app:layout_constraintTop_toBottomOf="@+id/etMqttBrokerUrl" />
+
+        <EditText
+            android:id="@+id/etDeviceKey"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:ems="16"
+            android:hint="Enter the device Key"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:paddingVertical="24dp"
+            android:textSize="30sp"
+            app:layout_constraintEnd_toEndOf="@+id/textView"
+            app:layout_constraintStart_toStartOf="@+id/textView"
+            app:layout_constraintTop_toBottomOf="@+id/etMqttTopicPrefix" />
+
+        <Button
+            android:id="@+id/btnSubmit"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_margin="20dp"
+            android:paddingVertical="24dp"
+            android:text="Submit"
+            android:textSize="30sp"
+            app:layout_constraintEnd_toEndOf="@+id/etDeviceKey"
+            app:layout_constraintStart_toStartOf="@+id/etDeviceKey"
+            app:layout_constraintTop_toBottomOf="@+id/etDeviceKey" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>

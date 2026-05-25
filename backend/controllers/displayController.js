@@ -1,6 +1,6 @@
 import { getActivePlaylistWithMeta } from "../models/playlistModel.js";
 import { getPlaylistWithItems } from "../models/playlistItemModel.js";
-import { getDeviceByKey, updateDeviceLastSeen } from "../models/deviceModel.js";
+import { getDeviceByKey, touchDeviceLastSeen } from "../models/deviceModel.js";
 import pool from "../config/db.js";
 import { getPublicFileUrl } from "../utils/publicFileUrl.js";
 
@@ -61,9 +61,6 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       // Device not found -> allow client to show its own placeholder UI
       return res.json(getEmptyPlaylistResponse());
     }
-
-    // Update last_seen_at so device shows as online
-    await updateDeviceLastSeen(device_key);
 
     // Get device's group_id
     const deviceGroupId = device.group_id;
@@ -133,6 +130,7 @@ export const getActivePlaylistForDisplay = async (req, res) => {
       display_order: item.display_order,
       file_type: item.file_type,
       file_url: getPublicFileUrl({ req, key: item.file_path }),
+      file_size: item.file_size,
       original_name: item.original_name,
       mime_type: item.mime_type,
     }));
@@ -218,9 +216,18 @@ export const validateDeviceKey = async (req, res) => {
   }
 };
 
+let heartbeatDeprecationLogged = false;
+
 // Public endpoint for device heartbeat (no authentication required)
 export const heartbeatDisplay = async (req, res) => {
   try {
+    if (!heartbeatDeprecationLogged) {
+      heartbeatDeprecationLogged = true;
+      console.warn(
+        "GET /display/heartbeat is deprecated; use MQTT heartbeat when available"
+      );
+    }
+
     const { device_key } = req.query;
 
     if (!device_key || device_key.trim() === "") {
@@ -230,7 +237,7 @@ export const heartbeatDisplay = async (req, res) => {
       });
     }
 
-    const updated = await updateDeviceLastSeen(device_key.trim());
+    const updated = await touchDeviceLastSeen(device_key.trim());
 
     if (!updated) {
       return res.json({
