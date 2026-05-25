@@ -31,6 +31,23 @@ class ExoCacheCleaner @Inject constructor() {
         removeUrls(entries.map { it.fileUrl })
     }
 
+    fun clearAll() {
+        val keys = try {
+            cache.keys.toList()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to list Exo cache keys", t)
+            emptyList()
+        }
+        for (key in keys) {
+            try {
+                cache.removeResource(key)
+                Log.d(TAG, "Removed Exo cache resource key=$key")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Failed to remove Exo cache resource key=$key", t)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "VideoAssetSync"
     }

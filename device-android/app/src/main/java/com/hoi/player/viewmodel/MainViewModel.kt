@@ -14,27 +14,25 @@ import com.hoi.player.models.DisplayPlaylistResponse
 import com.hoi.player.models.Playlist
 import com.hoi.player.models.ValidateDeviceResponse
 import com.hoi.player.models.VideoPlaybackUriOptions
+import com.hoi.player.mqtt.MqttConnectionManager
+import com.hoi.player.mqtt.MqttConnectionState
 import com.hoi.player.network.ApiService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
-
-private const val HEARTBEAT_INTERVAL_MS = 60_000L
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val apiService: ApiService,
     private val videoAssetStore: VideoAssetStore,
     private val videoAssetSyncCoordinator: VideoAssetSyncCoordinator,
-    private val videoTranscodeCoordinator: VideoTranscodeCoordinator
+    private val videoTranscodeCoordinator: VideoTranscodeCoordinator,
+    mqttConnectionManager: MqttConnectionManager
 ) : ViewModel() {
 
-    private var heartbeatJob: Job? = null
     private var validateJob: Job? = null
     private var prepareJob: Job? = null
 
@@ -73,6 +71,19 @@ class MainViewModel @Inject constructor(
                 handleTranscodeEventForGate(uiEvent)
             }
         }
+        viewModelScope.launch {
+            mqttConnectionManager.connectionState.collect { state ->
+                when (state) {
+                    MqttConnectionState.CONNECTED -> _heartbeatError.postValue(null)
+                    MqttConnectionState.ERROR ->
+                        _heartbeatError.postValue("MQTT connection error")
+                    MqttConnectionState.WAITING_FOR_WIFI ->
+                        _heartbeatError.postValue("Waiting for WiFi…")
+                    MqttConnectionState.CONNECTING -> Unit
+                    MqttConnectionState.DISCONNECTED -> Unit
+                }
+            }
+        }
     }
 
     fun shouldBypassLocalTranscode(fileId: Int?): Boolean {
@@ -84,7 +95,6 @@ class MainViewModel @Inject constructor(
     fun currentPlaybackUriOptions(): VideoPlaybackUriOptions =
         VideoPlaybackUriOptions(bypassLocalTranscodeFileIds = bypassLocalTranscodeFileIds.toSet())
 
-    /** True when this item already played on the current page (e.g. skip → remote) — Ready should advance, not replay. */
     fun shouldAdvanceOnTranscodeReady(fileId: Int): Boolean =
         shouldAdvanceOnTranscodeReady(
             fileId,
@@ -157,14 +167,9 @@ class MainViewModel @Inject constructor(
         val gateFileId = prepareGateFileId ?: return
         when (event) {
             is TranscodeUiEvent.Running -> {
-                if (event.fileId != gateFileId) return
-                _playbackGate.postValue(
-                    PlaybackGateState.Blocked(
-                        fileId = gateFileId,
-                        label = blockedLabel,
-                        progressPercent = (event.progress * 100).toInt().coerceIn(0, 100)
-                    )
-                )
+                // Gate is for gateFileId, but another file may transcode first — still update the bar.
+                if (event.fileId != gateFileId && prepareGateFileId != gateFileId) return
+                updateBlockedGateProgress(gateFileId, event.progress)
             }
             is TranscodeUiEvent.Ready -> {
                 if (event.fileId != gateFileId) return
@@ -190,6 +195,16 @@ class MainViewModel @Inject constructor(
             }
             is TranscodeUiEvent.PrepareSkipped -> Unit
         }
+    }
+
+    private fun updateBlockedGateProgress(gateFileId: Int, progress: Float) {
+        _playbackGate.postValue(
+            PlaybackGateState.Blocked(
+                fileId = gateFileId,
+                label = blockedLabel,
+                progressPercent = (progress * 100).toInt().coerceIn(0, 100)
+            )
+        )
     }
 
     fun onVideoPlaybackStarted(fileId: Int?) {
@@ -264,38 +279,5 @@ class MainViewModel @Inject constructor(
                 videoAssetSyncCoordinator.prioritizeDownloads(playlist, fileId)
             }
         }
-    }
-
-    fun sendHeartbeat(deviceKey: String) {
-        viewModelScope.launch {
-            try {
-                val response = apiService.sendHeartbeat(deviceKey)
-                if (response.isSuccessful) {
-                    _heartbeatError.value = null
-                } else {
-                    Log.w("MainViewModel", "Heartbeat failed: ${response.code()}")
-                    _heartbeatError.value = "Heartbeat failed (${response.code()})"
-                }
-            } catch (e: Exception) {
-                Log.w("MainViewModel", "Heartbeat error: ${e.message}")
-                _heartbeatError.value = e.message ?: "Heartbeat error"
-            }
-        }
-    }
-
-    fun startHeartbeat(deviceKey: String) {
-        stopHeartbeat()
-        heartbeatJob = viewModelScope.launch {
-            sendHeartbeat(deviceKey)
-            while (isActive) {
-                delay(HEARTBEAT_INTERVAL_MS)
-                if (isActive) sendHeartbeat(deviceKey)
-            }
-        }
-    }
-
-    fun stopHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = null
     }
 }

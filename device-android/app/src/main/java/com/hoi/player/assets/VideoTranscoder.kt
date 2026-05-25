@@ -3,7 +3,9 @@ package com.hoi.player.assets
 import android.content.Context
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.Process
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -25,7 +27,6 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -77,6 +78,7 @@ class VideoTranscoder @Inject constructor(
     suspend fun transcode(
         input: File,
         output: File,
+        fileId: Int? = null,
         onProgress: suspend (Float) -> Unit = {}
     ) {
         val plan = planTranscode(input)
@@ -86,9 +88,23 @@ class VideoTranscoder @Inject constructor(
         partFile.parentFile?.mkdirs()
         if (partFile.exists() && partFile.length() == 0L) partFile.delete()
 
+        VideoTranscodeLog.transformer(
+            phase = "transcode_enter",
+            fileId = fileId,
+            detail = "input=${input.absolutePath} (${VideoTranscodeLog.formatSize(input.length())}) " +
+                "output=${output.absolutePath} part=${partFile.absolutePath} " +
+                "mime=${plan.source.mimeType} ${plan.source.width}x${plan.source.height} rot=${plan.source.rotationDegrees}"
+        )
+
         withContext(transcodeDispatcher) {
             Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-            runTranscodeWithDecoderFallback(input, partFile, plan, onProgress)
+            VideoTranscodeLog.transformer(
+                phase = "transcode_thread",
+                fileId = fileId,
+                detail = "thread=${Thread.currentThread().name} looper=${transcodeThread.looper.thread.name} " +
+                    "mainLooper=${Looper.getMainLooper().thread.name}"
+            )
+            runTranscodeWithDecoderFallback(input, partFile, plan, fileId, onProgress)
         }
 
         if (output.exists() && !output.delete()) {
@@ -102,20 +118,38 @@ class VideoTranscoder @Inject constructor(
             partFile.delete()
             throw IllegalStateException("Transcoded output missing or empty")
         }
+        VideoTranscodeLog.transformer(
+            phase = "transcode_exit_ok",
+            fileId = fileId,
+            detail = "output=${output.absolutePath} (${VideoTranscodeLog.formatSize(output.length())})"
+        )
     }
 
     private suspend fun runTranscodeWithDecoderFallback(
         input: File,
         partFile: File,
         plan: TranscodePlan,
+        fileId: Int?,
         onProgress: suspend (Float) -> Unit
     ) {
         try {
-            runTranscode(input, partFile, plan, onProgress, preferSoftwareDecoder = false)
+            runTranscode(input, partFile, plan, fileId, onProgress, preferSoftwareDecoder = false)
         } catch (first: ExportException) {
+            VideoTranscodeLog.transformerExportError(
+                fileId = fileId,
+                errorCode = first.errorCode,
+                message = first.message,
+                preferSoftwareDecoder = false,
+                cause = first
+            )
             if (!isDecoderCodecExportException(first)) throw first
+            VideoTranscodeLog.transformer(
+                phase = "decoder_fallback_retry",
+                fileId = fileId,
+                detail = "retrying with software decoder preference"
+            )
             partFile.delete()
-            runTranscode(input, partFile, plan, onProgress, preferSoftwareDecoder = true)
+            runTranscode(input, partFile, plan, fileId, onProgress, preferSoftwareDecoder = true)
         }
     }
 
@@ -123,10 +157,19 @@ class VideoTranscoder @Inject constructor(
         input: File,
         partFile: File,
         plan: TranscodePlan,
+        fileId: Int?,
         onProgress: suspend (Float) -> Unit,
         preferSoftwareDecoder: Boolean
     ) = suspendCancellableCoroutine { cont ->
-        val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(input.toURI().toString()))
+        val inputUri = input.toURI().toString()
+        VideoTranscodeLog.transformer(
+            phase = "run_start",
+            fileId = fileId,
+            detail = "uri=$inputUri swDecoder=$preferSoftwareDecoder targetH=${plan.targetHeightPx} " +
+                "bitrate=${plan.videoBitrate} part=${partFile.absolutePath}"
+        )
+
+        val editedMediaItem = EditedMediaItem.Builder(MediaItem.fromUri(inputUri))
             .setEffects(
                 Effects(
                     /* audioProcessors = */ emptyList(),
@@ -169,6 +212,13 @@ class VideoTranscoder @Inject constructor(
             .addListener(
                 object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        VideoTranscodeLog.transformer(
+                            phase = "onCompleted",
+                            fileId = fileId,
+                            detail = "part=${VideoTranscodeLog.formatSize(partFile.length())} " +
+                                "exportDurationMs=${exportResult.durationMs} " +
+                                "swDecoder=$preferSoftwareDecoder"
+                        )
                         progressJob?.cancel()
                         if (cont.isActive) cont.resume(Unit)
                     }
@@ -178,6 +228,13 @@ class VideoTranscoder @Inject constructor(
                         exportResult: ExportResult,
                         exportException: ExportException
                     ) {
+                        VideoTranscodeLog.transformerExportError(
+                            fileId = fileId,
+                            errorCode = exportException.errorCode,
+                            message = exportException.message,
+                            preferSoftwareDecoder = preferSoftwareDecoder,
+                            cause = exportException
+                        )
                         progressJob?.cancel()
                         partFile.delete()
                         if (cont.isActive) cont.resumeWithException(exportException)
@@ -186,26 +243,110 @@ class VideoTranscoder @Inject constructor(
             )
             .build()
 
+        val exportStartMs = SystemClock.elapsedRealtime()
+        var lastLoggedProgressState: Int? = null
+        var lastReportedPercent = -1
+        var pollCount = 0
+        var lastStallWarnMs = 0L
+
         progressJob = progressScope.launch {
             while (isActive) {
-                when (transformer.getProgress(progressHolder)) {
+                pollCount++
+                val elapsedMs = SystemClock.elapsedRealtime() - exportStartMs
+                val progressState = transformer.getProgress(progressHolder)
+                val stateName = progressStateName(progressState)
+                val progressPercent = when (progressState) {
+                    Transformer.PROGRESS_STATE_AVAILABLE -> progressHolder.progress
+                    else -> null
+                }
+                val partBytes = partFile.length()
+
+                val stateChanged = progressState != lastLoggedProgressState
+                val percentChanged = progressPercent != null && progressPercent != lastReportedPercent
+                val logThisPoll = stateChanged || percentChanged || pollCount == 1 ||
+                    (elapsedMs >= STALL_WARN_INTERVAL_MS && (progressPercent == null || progressPercent == 0))
+                if (logThisPoll) {
+                    VideoTranscodeLog.progressPoll(
+                        fileId = fileId,
+                        progressState = stateName,
+                        progressPercent = progressPercent,
+                        partBytes = partBytes,
+                        inputBytes = input.length(),
+                        elapsedMs = elapsedMs,
+                        preferSoftwareDecoder = preferSoftwareDecoder
+                    )
+                    lastLoggedProgressState = progressState
+                    if (progressPercent != null) {
+                        lastReportedPercent = progressPercent
+                    }
+                }
+
+                when (progressState) {
                     Transformer.PROGRESS_STATE_AVAILABLE -> {
                         onProgress(progressHolder.progress / 100f)
                     }
                 }
+
+                val stuckAtZero = progressPercent == null || progressPercent == 0
+                if (stuckAtZero && elapsedMs >= STALL_WARN_INTERVAL_MS &&
+                    elapsedMs - lastStallWarnMs >= STALL_WARN_INTERVAL_MS
+                ) {
+                    lastStallWarnMs = elapsedMs
+                    VideoTranscodeLog.progressStallWarning(
+                        fileId = fileId,
+                        progressState = stateName,
+                        partBytes = partBytes,
+                        elapsedMs = elapsedMs,
+                        pollCount = pollCount
+                    )
+                }
+
                 delay(PROGRESS_POLL_MS)
             }
         }
 
         cont.invokeOnCancellation {
+            VideoTranscodeLog.transformer(
+                phase = "cancelled",
+                fileId = fileId,
+                detail = "cancelling progress poll swDecoder=$preferSoftwareDecoder"
+            )
             progressJob?.cancel()
+            runCatching { transformer.cancel() }
+                .onFailure { t ->
+                    VideoTranscodeLog.transformer(
+                        phase = "cancel_failed",
+                        fileId = fileId,
+                        detail = t.message
+                    )
+                }
         }
 
+        VideoTranscodeLog.transformer(
+            phase = "start_called",
+            fileId = fileId,
+            detail = "calling transformer.start on thread=${Thread.currentThread().name} " +
+                "appLooper=${transformer.getApplicationLooper().thread.name}"
+        )
         transformer.start(editedMediaItem, partFile.absolutePath)
+        VideoTranscodeLog.transformer(
+            phase = "start_returned",
+            fileId = fileId,
+            detail = "transformer.start returned (async export running)"
+        )
     }
 
     companion object {
         private const val PROGRESS_POLL_MS = 2_000L
+        private const val STALL_WARN_INTERVAL_MS = 10_000L
+
+        private fun progressStateName(state: Int): String = when (state) {
+            Transformer.PROGRESS_STATE_NOT_STARTED -> "NOT_STARTED"
+            Transformer.PROGRESS_STATE_WAITING_FOR_AVAILABILITY -> "WAITING"
+            Transformer.PROGRESS_STATE_AVAILABLE -> "AVAILABLE"
+            Transformer.PROGRESS_STATE_UNAVAILABLE -> "UNAVAILABLE"
+            else -> "UNKNOWN($state)"
+        }
 
         private fun preferSoftwareMediaCodecSelector(): MediaCodecSelector =
             MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->

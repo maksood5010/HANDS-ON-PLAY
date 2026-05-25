@@ -396,6 +396,11 @@ export const deviceAPI = {
     return response.data;
   },
 
+  getDeviceStatus: async (id) => {
+    const response = await api.get(`/devices/${id}/status`);
+    return response.data;
+  },
+
   createDevice: async (name, groupId) => {
     const response = await api.post("/devices", { name, groupId });
     return response.data;

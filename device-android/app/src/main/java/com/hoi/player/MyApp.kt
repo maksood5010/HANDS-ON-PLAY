@@ -6,8 +6,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.hoi.player.di.AppEntryPoint
 import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.PreferencesManager
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
 import java.io.File
 
@@ -23,6 +25,10 @@ class MyApp : Application() {
         PreferencesManager.with(this)
         connectivityRestoreMonitor = ConnectivityRestoreMonitor(applicationContext)
         connectivityRestoreMonitor.start()
+
+        EntryPointAccessors.fromApplication(this, AppEntryPoint::class.java)
+            .appForegroundTracker()
+            .start()
     }
 
     override fun onTerminate() {

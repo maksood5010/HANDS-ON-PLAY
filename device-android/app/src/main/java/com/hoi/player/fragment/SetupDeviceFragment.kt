@@ -11,8 +11,8 @@ import android.widget.Toast
 import android.util.Log
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
-import androidx.lifecycle.Observer
 import com.hoi.player.MainActivity
+import com.hoi.player.boot.BootForegroundService
 import com.hoi.player.databinding.FragmentSetupDeviceBinding
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
@@ -25,14 +25,13 @@ class SetupDeviceFragment : Fragment() {
     val binding: FragmentSetupDeviceBinding by lazy {
         FragmentSetupDeviceBinding.inflate(layoutInflater)
     }
-    var deviceKey =""
+    var deviceKey = ""
     private var loadingDialog: AlertDialog? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment
         return binding.root
     }
 
@@ -46,6 +45,8 @@ class SetupDeviceFragment : Fragment() {
         val currentBaseUrl =
             PreferencesManager.get<String>(Constants.PREF_BASE_API_URL) ?: Constants.apiUrl
         binding.etBaseUrl.setText(currentBaseUrl)
+        binding.etMqttBrokerUrl.setText(Constants.mqttBrokerUrl)
+        binding.etMqttTopicPrefix.setText(Constants.mqttTopicPrefix)
 
         with(viewModel) {
             deviceValidationResult.observe(viewLifecycleOwner) { result ->
@@ -53,7 +54,7 @@ class SetupDeviceFragment : Fragment() {
                 val isValid = result?.valid ?: false
                 if (isValid) {
                     showToast("Device key is valid")
-                    PreferencesManager.put(deviceKey, "device_key")
+                    PreferencesManager.put(deviceKey, Constants.PREF_DEVICE_KEY)
 
                     val device = result?.device
                     if (device?.company_id != null) {
@@ -79,7 +80,6 @@ class SetupDeviceFragment : Fragment() {
                                 Log.d("SetupDeviceFragment", "subscribeToTopic($topic) success=${task.isSuccessful}")
                             }
 
-                        // Company-wide topic used for "All devices" group actions.
                         val companyTopic = "c_${companyId}_all"
                         FirebaseMessaging.getInstance()
                             .subscribeToTopic(companyTopic)
@@ -88,7 +88,8 @@ class SetupDeviceFragment : Fragment() {
                             }
                     }
 
-                    (requireActivity() as MainActivity).replaceFragment(HomeFragment(),false)
+                    BootForegroundService.startIfNeeded(requireContext())
+                    (requireActivity() as MainActivity).replaceFragment(HomeFragment(), false)
                 } else {
                     showToast("Invalid device key")
                 }
@@ -111,6 +112,19 @@ class SetupDeviceFragment : Fragment() {
                 return@setOnClickListener
             }
             PreferencesManager.put(normalizedBaseUrl, Constants.PREF_BASE_API_URL)
+
+            val rawMqttUrl = binding.etMqttBrokerUrl.text?.toString()
+            val normalizedMqttUrl = Constants.normalizeMqttBrokerUrl(rawMqttUrl)
+            if (normalizedMqttUrl == null) {
+                showToast("Invalid MQTT Broker URL. Must start with mqtt:// or mqtts://")
+                return@setOnClickListener
+            }
+            PreferencesManager.put(normalizedMqttUrl, Constants.PREF_MQTT_BROKER_URL)
+
+            val topicPrefix = binding.etMqttTopicPrefix.text?.toString()?.trim().orEmpty()
+            if (topicPrefix.isNotEmpty()) {
+                PreferencesManager.put(topicPrefix.trimEnd('/'), Constants.PREF_MQTT_TOPIC_PREFIX)
+            }
 
             deviceKey = binding.etDeviceKey.text.toString().trim()
 

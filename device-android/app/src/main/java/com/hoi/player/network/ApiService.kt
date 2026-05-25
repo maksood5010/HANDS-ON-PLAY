@@ -24,9 +24,4 @@ interface ApiService {
     suspend fun getActivePlaylist(
         @Query("device_key") deviceKey: String
     ): Response<DisplayPlaylistResponse>
-
-    @GET("display/heartbeat")
-    suspend fun sendHeartbeat(
-        @Query("device_key") deviceKey: String
-    ): Response<ApiResponse<Any?>>
 }

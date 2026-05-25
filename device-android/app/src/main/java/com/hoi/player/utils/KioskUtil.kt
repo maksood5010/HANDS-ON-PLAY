@@ -8,10 +8,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.os.UserManager
 import android.util.Log
 import com.hoi.player.MainActivity
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileInputStream
 import java.io.DataOutputStream
 import java.io.InputStreamReader
 import kotlin.system.exitProcess
@@ -19,12 +22,29 @@ import kotlin.system.exitProcess
 class KioskUtil {
     companion object {
         val TAG = this.javaClass.simpleName
-        fun setDeviceOwner(context: Activity){
-            //dpm set-device-owner com.hoi.player/.utils.MyDeviceAdminReceiver
-            adbCommand("dpm set-device-owner ${context.packageName}/.utils.MyDeviceAdminReceiver")
-            startKioskMode(context)
-//            setFont()
+        fun setDeviceOwner(context: Activity) {
+            setDeviceOwner(context as Context)
+        }
 
+        fun setDeviceOwner(context: Context) {
+            val result = adbCommand(
+                "dpm set-device-owner ${context.packageName}/.utils.MyDeviceAdminReceiver"
+            )
+            Log.i(TAG, "setDeviceOwner: result=${result?.trim().orEmpty().ifEmpty { "(empty)" }}")
+        }
+
+        fun rebootDevice(context: Context) {
+            val devicePolicyManager =
+                context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = ComponentName(context, MyDeviceAdminReceiver::class.java)
+            if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
+                Log.i(TAG, "rebootDevice: using DevicePolicyManager.reboot")
+                devicePolicyManager.reboot(admin)
+                return
+            }
+            Log.i(TAG, "rebootDevice: fallback to su reboot")
+            val result = adbCommand("reboot")
+            Log.i(TAG, "rebootDevice: su result=${result?.trim().orEmpty().ifEmpty { "(empty)" }}")
         }
         fun setFont(){
             val result= adbCommand("settings get system font_scale")?.trim()
@@ -110,39 +130,29 @@ class KioskUtil {
 //                Log.e(TAG, "stopKioskMode: Failed to stop foreground service", e)
 //            }
         }
-        /*fun install(context: Context, apkFile: File) {
+        fun install(context: Context, apkFile: File) {
             val packageInstaller = context.packageManager.packageInstaller
-
-            val inputStream = FileInputStream(apkFile)
-            val packageName = context.packageName
-
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            val sessionId = packageInstaller.createSession(params)
-            val session = packageInstaller.openSession(sessionId)
-
-            val out = session.openWrite("app_install", 0, apkFile.length())
-            inputStream.copyTo(out)
-            session.fsync(out)
-            out.close()
-            inputStream.close()
-            Log.d(TAG, "install: launching InstallResultReceiver now")
-
-            try{
+            FileInputStream(apkFile).use { inputStream ->
+                val params =
+                    PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                val sessionId = packageInstaller.createSession(params)
+                val session = packageInstaller.openSession(sessionId)
+                session.openWrite("app_install", 0, apkFile.length()).use { out ->
+                    inputStream.copyTo(out)
+                    session.fsync(out)
+                }
+                Log.d(TAG, "install: committing session $sessionId")
                 val intent = Intent(context, InstallResultReceiver::class.java)
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,
-                    1,
+                    sessionId,
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
                 )
-
                 session.commit(pendingIntent.intentSender)
                 session.close()
-            }catch (e: Exception){
-                adbCommand("reboot")
-                e.printStackTrace()
             }
-        }*/
+        }
         fun restartApp(context: Context) {
             val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)

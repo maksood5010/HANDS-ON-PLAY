@@ -52,12 +52,24 @@ export const getDeviceByKey = async (deviceKey) => {
   return result.rows[0] || null;
 };
 
-export const updateDeviceLastSeen = async (deviceKey) => {
+export const touchDeviceLastSeen = async (deviceKey) => {
   const result = await pool.query(
-    `UPDATE devices SET last_seen_at = CURRENT_TIMESTAMP WHERE device_key = $1 RETURNING id`,
+    `UPDATE devices SET last_seen_at = CURRENT_TIMESTAMP
+     WHERE device_key = $1
+     RETURNING id`,
     [deviceKey]
   );
   return result.rowCount > 0;
+};
+
+/** @deprecated Rich heartbeat fields are no longer written; use touchDeviceLastSeen. */
+export const upsertDeviceHeartbeat = async (deviceKey, _fields = {}) => {
+  return touchDeviceLastSeen(deviceKey);
+};
+
+/** @deprecated Use touchDeviceLastSeen. */
+export const updateDeviceLastSeen = async (deviceKey) => {
+  return touchDeviceLastSeen(deviceKey);
 };
 
 export const updateDevicePlaylist = async (deviceId, companyId, playlistId) => {

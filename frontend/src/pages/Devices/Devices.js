@@ -1,9 +1,150 @@
 import './Devices.css';
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { deviceAPI, deviceGroupAPI } from '../../services/api';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { LayoutTopBarActionContext } from '../../components/Layout/LayoutTopBarActionContext';
 import ConfirmSheet from '../../components/common/ConfirmSheet/ConfirmSheet';
+
+/** Returns absolute http(s) URL or null if not previewable. */
+function getValidPlaybackUrl(value) {
+  if (!value || value === 'not_playing') return null;
+  try {
+    const url = new URL(String(value).trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/** Preview URL and/or display label for the Now playing row. */
+function resolveNowPlayingDisplay(status) {
+  if (!status) return { previewUrl: null, label: null };
+
+  const raw = status.currently_playing;
+  const previewUrl = getValidPlaybackUrl(raw);
+  if (previewUrl) return { previewUrl, label: null };
+
+  const playbackState = String(status.playback_state || '').toLowerCase();
+  const isActive =
+    playbackState === 'playing' ||
+    playbackState === 'idle' ||
+    playbackState === 'setup';
+
+  if (isActive && raw && raw !== 'not_playing') {
+    const name = String(raw).trim();
+    return { previewUrl: null, label: name };
+  }
+
+  return { previewUrl: null, label: null };
+}
+
+function mediaKindFromUrl(url) {
+  const path = url.split('?')[0].toLowerCase();
+  if (/\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(path)) return 'image';
+  if (/\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(path)) return 'video';
+  return 'unknown';
+}
+
+function DeviceMediaPreviewModal({ url, title, onClose }) {
+  const videoRef = useRef(null);
+  const kind = mediaKindFromUrl(url);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  useEffect(
+    () => () => {
+      if (videoRef.current) videoRef.current.pause();
+    },
+    []
+  );
+
+  return (
+    <div
+      className="modal-overlay playlist-media-modal-overlay"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="modal-content modal-content--media-preview"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="device-media-preview-title"
+      >
+        <div className="modal-header">
+          <h2 id="device-media-preview-title">{title}</h2>
+          <button type="button" className="close-btn" onClick={onClose} aria-label="Close preview">
+            ×
+          </button>
+        </div>
+        <div className="playlist-media-preview-body">
+          {kind === 'image' ? (
+            <img src={url} alt={title} className="playlist-media-preview__media" />
+          ) : (
+            <video
+              ref={videoRef}
+              src={url}
+              className="playlist-media-preview__media"
+              controls
+              autoPlay
+              playsInline
+            >
+              Your browser does not support video playback.
+            </video>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** User-facing message for live status API errors (no technical protocol names). */
+function formatLiveStatusError(err) {
+  const reason = err.response?.data?.reason;
+  const apiError = err.response?.data?.error;
+
+  if (reason === 'offline') return 'Device is offline';
+  if (reason === 'mqtt_unavailable') {
+    return 'Unable to reach the device right now. Try again shortly.';
+  }
+  if (reason === 'timeout') {
+    return 'The device did not respond in time. Try again.';
+  }
+  if (typeof apiError === 'string') {
+    if (/mqtt/i.test(apiError)) {
+      return 'Unable to reach the device right now. Try again shortly.';
+    }
+    if (/timed out/i.test(apiError)) {
+      return 'The device did not respond in time. Try again.';
+    }
+    return apiError;
+  }
+  return 'Could not load playback and health details';
+}
+
+function heartbeatBadgeClass(kind, value) {
+  if (!value) return 'heartbeat-badge neutral';
+  const v = String(value).toLowerCase();
+  if (kind === 'health') {
+    if (v === 'ok') return 'heartbeat-badge ok';
+    if (v === 'warning') return 'heartbeat-badge warning';
+    if (v === 'error') return 'heartbeat-badge error';
+  }
+  if (kind === 'playback') {
+    if (v === 'app_closed') return 'heartbeat-badge neutral';
+    if (v === 'playing') return 'heartbeat-badge ok';
+    if (v === 'idle' || v === 'setup') return 'heartbeat-badge warning';
+    if (v === 'error') return 'heartbeat-badge error';
+  }
+  return 'heartbeat-badge neutral';
+}
 
 function Devices() {
   const [devices, setDevices] = useState([]);
@@ -18,14 +159,60 @@ function Devices() {
   const [showDeviceKey, setShowDeviceKey] = useState(false);
   const [mobileView, setMobileView] = useState('list');
   const [confirmCfg, setConfirmCfg] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [liveStatus, setLiveStatus] = useState(null);
+  const [liveStatusLoading, setLiveStatusLoading] = useState(false);
+  const [liveStatusError, setLiveStatusError] = useState('');
 
   const isMobile = useIsMobile(1023);
+  const nowPlaying = resolveNowPlayingDisplay(liveStatus);
+  const playbackPreviewUrl = nowPlaying.previewUrl;
+  const nowPlayingLabel = nowPlaying.label;
   const setTopBarAction = useContext(LayoutTopBarActionContext);
 
   useEffect(() => {
     fetchDevices();
     fetchGroups();
   }, []);
+
+  useEffect(() => {
+    setMediaPreview(null);
+  }, [selectedDevice?.id]);
+
+  const fetchLiveStatus = async (deviceId, isOnline) => {
+    if (!deviceId) {
+      setLiveStatus(null);
+      setLiveStatusError('');
+      return;
+    }
+    if (!isOnline) {
+      setLiveStatus(null);
+      setLiveStatusError('Device is offline');
+      setLiveStatusLoading(false);
+      return;
+    }
+    try {
+      setLiveStatusLoading(true);
+      setLiveStatusError('');
+      const response = await deviceAPI.getDeviceStatus(deviceId);
+      setLiveStatus(response.status || null);
+    } catch (err) {
+      setLiveStatus(null);
+      setLiveStatusError(formatLiveStatusError(err));
+    } finally {
+      setLiveStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedDevice?.id) {
+      setLiveStatus(null);
+      setLiveStatusError('');
+      setLiveStatusLoading(false);
+      return;
+    }
+    fetchLiveStatus(selectedDevice.id, selectedDevice.is_online);
+  }, [selectedDevice?.id, selectedDevice?.is_online]);
 
   useEffect(() => {
     if (!isMobile) setMobileView('list');
@@ -375,6 +562,95 @@ function Devices() {
                   </div>
                 </div>
 
+                <div className="detail-section">
+                  <h3>Playback &amp; health</h3>
+                  <p className="section-description">
+                    Current playback and health, requested from the device when you view this page
+                  </p>
+                  {liveStatusLoading ? (
+                    <p className="heartbeat-muted">Loading playback and health…</p>
+                  ) : liveStatusError ? (
+                    <div className="live-status-error">
+                      <p className="heartbeat-muted">{liveStatusError}</p>
+                      {selectedDevice.is_online && (
+                        <button
+                          type="button"
+                          className="copy-btn"
+                          onClick={() =>
+                            fetchLiveStatus(selectedDevice.id, selectedDevice.is_online)
+                          }
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="info-grid">
+                      <div className="info-item">
+                        <span className="info-label">App version</span>
+                        <span className="info-value">
+                          {liveStatus?.app_version || '—'}
+                        </span>
+                      </div>
+                      <div className="info-item">
+                        <span className="info-label">Now playing</span>
+                        <span className="info-value">
+                          {playbackPreviewUrl ? (
+                            <button
+                              type="button"
+                              className="copy-btn"
+                              aria-label={`Preview media for ${selectedDevice.name}`}
+                              onClick={() =>
+                                setMediaPreview({
+                                  url: playbackPreviewUrl,
+                                  title: selectedDevice.name || 'Now playing',
+                                })
+                              }
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                              </svg>
+                              Preview
+                            </button>
+                          ) : nowPlayingLabel ? (
+                            <span className="info-value">{nowPlayingLabel}</span>
+                          ) : (
+                            <span className="heartbeat-muted">Not playing</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="info-item">
+                        <span className="info-label">Playback</span>
+                        <span className="info-value">
+                          <span
+                            className={heartbeatBadgeClass(
+                              'playback',
+                              liveStatus?.playback_state
+                            )}
+                          >
+                            {liveStatus?.playback_state === 'app_closed'
+                              ? 'App closed'
+                              : (liveStatus?.playback_state || '—')}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="info-item">
+                        <span className="info-label">Health</span>
+                        <span className="info-value">
+                          <span
+                            className={heartbeatBadgeClass(
+                              'health',
+                              liveStatus?.health_status
+                            )}
+                          >
+                            {liveStatus?.health_status || '—'}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="danger-zone">
                   <h3>Danger Zone</h3>
                   <p>Permanently delete this device and remove it from your account.</p>
@@ -457,6 +733,14 @@ function Devices() {
             </form>
           </div>
         </div>
+      )}
+
+      {mediaPreview && (
+        <DeviceMediaPreviewModal
+          url={mediaPreview.url}
+          title={mediaPreview.title}
+          onClose={() => setMediaPreview(null)}
+        />
       )}
 
       <ConfirmSheet

@@ -49,18 +49,28 @@ class VideoTranscodeCoordinator @Inject constructor(
     }
 
     suspend fun requestPrepareTranscode(fileId: Int): PrepareTranscodeResult {
+        VideoTranscodeLog.coordinator("requestPrepareTranscode", fileId)
         if (store.getTranscodedFileIfReady(fileId) != null) {
+            VideoTranscodeLog.coordinator("requestPrepareTranscode", fileId, "already ready")
             return PrepareTranscodeResult.AlreadyReady
         }
-        val local = store.getLocalFileIfReady(fileId) ?: return PrepareTranscodeResult.NotReady
+        val local = store.getLocalFileIfReady(fileId) ?: run {
+            VideoTranscodeLog.coordinator("requestPrepareTranscode", fileId, "local file not ready")
+            return PrepareTranscodeResult.NotReady
+        }
         if (transcoder.shouldSkipTranscode(local)) {
+            VideoTranscodeLog.coordinator("requestPrepareTranscode", fileId, "skip — source within limits")
             store.updateTranscodeStatus(fileId, TranscodeStatus.NONE)
             return PrepareTranscodeResult.Skipped
         }
         stateMutex.withLock {
             prepareBlockingFileId = fileId
         }
+        VideoTranscodeLog.coordinator("requestPrepareTranscode", fileId, "queued prepare-blocking job")
         queueTranscode(fileId)
+        stateMutex.withLock { movePendingFileToFront(fileId) }
+        preemptActiveTranscodeForPrepareBlocking()
+        tryStartPendingJobs(excludeFileId = currentlyPlayingFileId)
         return PrepareTranscodeResult.Started
     }
 
@@ -185,7 +195,10 @@ class VideoTranscodeCoordinator @Inject constructor(
     }
 
     private suspend fun queueTranscode(fileId: Int) {
-        if (store.getTranscodedFileIfReady(fileId) != null) return
+        if (store.getTranscodedFileIfReady(fileId) != null) {
+            VideoTranscodeLog.coordinator("queueTranscode", fileId, "skipped — already ready")
+            return
+        }
 
         var emitQueued = false
         val shouldStart = stateMutex.withLock {
@@ -209,29 +222,58 @@ class VideoTranscodeCoordinator @Inject constructor(
             VideoTranscodeLog.queued(fileId)
             _events.emit(TranscodeEvent.Queued(fileId))
         }
+        VideoTranscodeLog.coordinator(
+            "queueTranscode",
+            fileId,
+            "emitQueued=$emitQueued shouldStart=$shouldStart status=${store.getTranscodeStatus(fileId)}"
+        )
         if (shouldStart) {
             tryStartPendingJobs(excludeFileId = currentlyPlayingFileId)
         }
     }
 
     private suspend fun tryStartPendingJobs(excludeFileId: Int?) {
+        if (preemptActiveTranscodeForPrepareBlocking()) {
+            return
+        }
+
         val fileIdToRun = stateMutex.withLock {
-            if (activeTranscodeFileId != null) return@withLock null
+            if (activeTranscodeFileId != null) {
+                VideoTranscodeLog.coordinator(
+                    "tryStartPendingJobs",
+                    activeTranscodeFileId,
+                    "skipped — active job already running (exclude=$excludeFileId pending=${pendingFileIds.size})"
+                )
+                return@withLock null
+            }
             pendingFileIds.removeAll { candidate ->
                 store.getTranscodedFileIfReady(candidate) != null
             }
             val blockingId = prepareBlockingFileId
-            val nextFileId = pendingFileIds.firstOrNull { candidate ->
-                shouldStartPendingTranscode(
-                    candidate,
-                    excludeFileId,
-                    prepareBlockingFileId = blockingId
-                ) &&
+            val nextFileId = selectNextPendingTranscodeFileId(
+                pendingFileIds = pendingFileIds,
+                currentlyPlayingFileId = excludeFileId,
+                prepareBlockingFileId = blockingId,
+                isPendingAndNotReady = { candidate ->
                     store.getTranscodeStatus(candidate) == TranscodeStatus.PENDING &&
-                    store.getTranscodedFileIfReady(candidate) == null
-            } ?: return@withLock null
+                        store.getTranscodedFileIfReady(candidate) == null
+                }
+            )
+            if (nextFileId == null) {
+                VideoTranscodeLog.coordinator(
+                    "tryStartPendingJobs",
+                    detail = "no eligible job | exclude=$excludeFileId prepareBlock=$blockingId " +
+                        "pending=$pendingFileIds"
+                )
+                return@withLock null
+            }
             pendingFileIds.remove(nextFileId)
             activeTranscodeFileId = nextFileId
+            VideoTranscodeLog.coordinator(
+                "tryStartPendingJobs",
+                nextFileId,
+                "starting job | exclude=$excludeFileId prepareBlock=$blockingId remainingPending=$pendingFileIds"
+            )
             nextFileId
         } ?: return
 
@@ -246,6 +288,11 @@ class VideoTranscodeCoordinator @Inject constructor(
     private suspend fun runTranscodeJob(fileId: Int) {
         var lastLoggedPercent = -1
         val isPrepareJob = stateMutex.withLock { prepareBlockingFileId == fileId }
+        VideoTranscodeLog.coordinator(
+            "runTranscodeJob_enter",
+            fileId,
+            "isPrepareJob=$isPrepareJob currentlyPlaying=$currentlyPlayingFileId"
+        )
         try {
             if (store.getTranscodedFileIfReady(fileId) != null) {
                 _events.emit(TranscodeEvent.Ready(fileId))
@@ -305,8 +352,14 @@ class VideoTranscodeCoordinator @Inject constructor(
             )
             VideoTranscodeLog.progress(fileId, 0)
 
+            VideoTranscodeLog.coordinator(
+                "runTranscodeJob_calling_transcoder",
+                fileId,
+                "input=${input.absolutePath} (${VideoTranscodeLog.formatSize(input.length())})"
+            )
+
             val transcodeBlock: suspend () -> Unit = {
-                transcoder.transcode(input, output) { progress ->
+                transcoder.transcode(input, output, fileId = fileId) { progress ->
                     val percent = (progress * 100).toInt().coerceIn(0, 100)
                     if (percent >= lastLoggedPercent + 10 || percent == 100) {
                         lastLoggedPercent = percent
@@ -328,7 +381,14 @@ class VideoTranscodeCoordinator @Inject constructor(
             VideoTranscodeLog.completed(fileId, output.name, output.length())
         } catch (t: Throwable) {
             if (t is CancellationException) {
-                VideoTranscodeLog.skipped(fileId, "conversion cancelled")
+                VideoTranscodeLog.cancelled(fileId)
+                VideoTranscodeLog.coordinator("runTranscodeJob_cancelled", fileId)
+                deletePartialTranscodeOutput(fileId)
+                store.updateTranscodeStatus(fileId, TranscodeStatus.PENDING)
+                stateMutex.withLock {
+                    pendingFileIds.add(fileId)
+                    prepareBlockingFileId?.let { movePendingFileToFront(it) }
+                }
                 return
             }
             VideoTranscodeLog.error(fileId, t.message ?: "conversion failed", t)
@@ -353,6 +413,7 @@ class VideoTranscodeCoordinator @Inject constructor(
             }
             _events.emit(TranscodeEvent.Failed(fileId))
         } finally {
+            VideoTranscodeLog.coordinator("runTranscodeJob_exit", fileId)
             stateMutex.withLock {
                 if (prepareBlockingFileId == fileId) {
                     prepareBlockingFileId = null
@@ -368,6 +429,42 @@ class VideoTranscodeCoordinator @Inject constructor(
         if (skipReasonLoggedKeys.add(key)) {
             VideoTranscodeLog.skipped(fileId, reason)
         }
+    }
+
+    /**
+     * When the user is blocked waiting for [prepareBlockingFileId], cancel an in-flight transcode
+     * for another file so progress events match the dialog.
+     */
+    private suspend fun preemptActiveTranscodeForPrepareBlocking(): Boolean {
+        val (blockingId, activeId, job) = stateMutex.withLock {
+            val blocking = prepareBlockingFileId ?: return false
+            val active = activeTranscodeFileId ?: return false
+            if (active == blocking) return false
+            if (!pendingFileIds.contains(blocking)) return false
+            Triple(blocking, active, activeTranscodeJob)
+        }
+        VideoTranscodeLog.coordinator(
+            "preemptActiveTranscode",
+            blockingId,
+            "cancelling in-flight file $activeId"
+        )
+        job?.cancel()
+        return true
+    }
+
+    private fun movePendingFileToFront(fileId: Int) {
+        if (!pendingFileIds.remove(fileId)) return
+        val rest = pendingFileIds.toList()
+        pendingFileIds.clear()
+        pendingFileIds.add(fileId)
+        pendingFileIds.addAll(rest)
+    }
+
+    private fun deletePartialTranscodeOutput(fileId: Int) {
+        val entry = store.getEntry(fileId) ?: return
+        store.deleteTranscodedFileFor(
+            entry.copy(transcodedFileName = VideoAssetEntry.transcodedFileNameFor(fileId))
+        )
     }
 
     companion object {

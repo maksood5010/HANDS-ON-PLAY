@@ -26,6 +26,10 @@ import com.hoi.player.network.ConnectivityRestoreMonitor
 import com.hoi.player.utils.Constants
 import com.hoi.player.utils.PreferencesManager
 import com.hoi.player.ui.TranscodeProgressDialog
+import com.hoi.player.heartbeat.PlaybackHeartbeatCollector
+import com.hoi.player.models.resolvePlaybackUrl
+import com.hoi.player.viewmodel.AppUpdateUiState
+import com.hoi.player.viewmodel.AppUpdateViewModel
 import com.hoi.player.viewmodel.MainViewModel
 import com.hoi.player.viewmodel.PlaybackGateState
 import com.hoi.player.viewmodel.TranscodeUiEvent
@@ -37,9 +41,13 @@ import javax.inject.Inject
 class HomeFragment : Fragment() {
 
     private val viewModel: MainViewModel by activityViewModels()
+    private val appUpdateViewModel: AppUpdateViewModel by activityViewModels()
 
     @Inject
     lateinit var videoAssetStore: VideoAssetStore
+
+    @Inject
+    lateinit var playbackHeartbeatCollector: PlaybackHeartbeatCollector
 
     private val binding: FragmentHomeBinding by lazy {
         FragmentHomeBinding.inflate(layoutInflater)
@@ -55,12 +63,16 @@ class HomeFragment : Fragment() {
     private var transcodeProgressDialog: TranscodeProgressDialog? = null
 
     private var lastConnectivityFetchAtMs = 0L
+    private var playbackPausedForAppUpdate = false
 
     private val playlistEventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Constants.ACTION_PLAYLIST_REFRESH ->
                     deviceKey?.let { key -> viewModel.fetchPlaylist(key) }
+                Constants.ACTION_RESTART_PLAYBACK -> {
+                    if (::adapter.isInitialized) adapter.restartPlayback()
+                }
                 Constants.ACTION_CONNECTIVITY_RESTORED ->
                     fetchPlaylistIfIdleOnConnectivityRestore()
             }
@@ -84,7 +96,7 @@ class HomeFragment : Fragment() {
             }
         }
 
-        deviceKey = PreferencesManager.get<String>("device_key")
+        deviceKey = PreferencesManager.get<String>(Constants.PREF_DEVICE_KEY)
         if (deviceKey == null) {
             Log.e("HomeFragment", "No device key found")
             showError("Device not set up. Open settings and enter the device key.")
@@ -99,6 +111,7 @@ class HomeFragment : Fragment() {
         adapter = PlaylistPagerAdapter(
             appContext = requireContext().applicationContext,
             videoAssetStore = videoAssetStore,
+            playbackHeartbeatCollector = playbackHeartbeatCollector,
             onVideoEnded = { advanceToNext() },
             onVideoError = {
                 handler.postDelayed({ advanceToNext() }, 2000)
@@ -180,6 +193,7 @@ class HomeFragment : Fragment() {
         viewModel.playbackGate.observe(viewLifecycleOwner) { gate ->
             when (gate) {
                 is PlaybackGateState.Blocked -> {
+                    playbackHeartbeatCollector.updateHealthWarning(isWarning = true)
                     transcodeProgressDialog?.show(
                         fileId = gate.fileId,
                         label = gate.label,
@@ -190,11 +204,25 @@ class HomeFragment : Fragment() {
                     }
                 }
                 is PlaybackGateState.Open -> {
+                    playbackHeartbeatCollector.updateHealthWarning(isWarning = false)
                     transcodeProgressDialog?.dismiss()
                     if (::adapter.isInitialized) {
                         adapter.releasePlaybackGate()
                     }
                 }
+            }
+        }
+
+        appUpdateViewModel.updateUiState.observe(viewLifecycleOwner) { state ->
+            if (!::adapter.isInitialized) return@observe
+            if (state.shouldPausePlayback()) {
+                adapter.pausePlayback()
+                playbackPausedForAppUpdate = true
+            } else if (playbackPausedForAppUpdate &&
+                (state is AppUpdateUiState.Idle || state is AppUpdateUiState.Error)
+            ) {
+                playbackPausedForAppUpdate = false
+                adapter.resumeCurrentVideo()
             }
         }
 
@@ -224,7 +252,6 @@ class HomeFragment : Fragment() {
             }
         }
 
-        viewModel.startHeartbeat(deviceKey!!)
         viewModel.fetchPlaylist(deviceKey!!)
     }
 
@@ -249,17 +276,31 @@ class HomeFragment : Fragment() {
     private fun notifyCurrentVideoSelected(position: Int) {
         val items = if (::adapter.isInitialized) adapter.currentList else return
         if (position !in items.indices) {
+            playbackHeartbeatCollector.updateDisplayedStaticItem(
+                playbackUrl = null,
+                displayLabel = null
+            )
             viewModel.onCurrentVideoSelected(fileId = null)
             return
         }
         val item = items[position]
+        val playbackUrl = item.resolvePlaybackUrl()
+        val displayLabel = item.originalName?.takeIf { it.isNotBlank() } ?: item.fileType
         if (!item.isVideo()) {
+            playbackHeartbeatCollector.updateDisplayedStaticItem(
+                playbackUrl = playbackUrl,
+                displayLabel = displayLabel
+            )
             viewModel.onCurrentVideoSelected(fileId = null)
             return
         }
+        playbackHeartbeatCollector.updateCurrentItemLabel(
+            displayLabel = displayLabel,
+            playbackUrl = playbackUrl
+        )
         viewModel.onCurrentVideoSelected(
             fileId = item.fileId,
-            label = item.originalName ?: item.fileUrl
+            label = displayLabel
         )
     }
 
@@ -330,7 +371,7 @@ class HomeFragment : Fragment() {
         transcodeProgressDialog?.dismiss()
         transcodeProgressDialog = null
         binding.viewPager.adapter = null
-        viewModel.stopHeartbeat()
+        playbackHeartbeatCollector.detach()
         super.onDestroyView()
     }
 
@@ -375,6 +416,7 @@ class HomeFragment : Fragment() {
         super.onStart()
         val filter = IntentFilter().apply {
             addAction(Constants.ACTION_PLAYLIST_REFRESH)
+            addAction(Constants.ACTION_RESTART_PLAYBACK)
             addAction(Constants.ACTION_CONNECTIVITY_RESTORED)
         }
         ContextCompat.registerReceiver(

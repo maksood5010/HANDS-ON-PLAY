@@ -102,7 +102,17 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
-        fun mediaItem(url: String): MediaItem =
-            MediaItem.Builder().setUri(url).build()
+        fun mediaItem(url: String, title: String? = null): MediaItem {
+            val builder = MediaItem.Builder().setUri(url)
+            val trimmedTitle = title?.trim().orEmpty()
+            if (trimmedTitle.isNotEmpty()) {
+                builder.setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(trimmedTitle)
+                        .build()
+                )
+            }
+            return builder.build()
+        }
     }
 }

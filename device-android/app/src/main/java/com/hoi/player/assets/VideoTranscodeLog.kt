@@ -58,6 +58,87 @@ object VideoTranscodeLog {
         Log.i(TAG, "Playback switched to converted file for $fileId")
     }
 
+    /** Verbose diagnostics for stuck-at-0% investigations (filter logcat: VideoTranscode). */
+    fun debug(message: String) {
+        Log.i(TAG, "[debug] $message")
+    }
+
+    fun debug(fileId: Int, message: String) {
+        Log.i(TAG, "[debug] file $fileId: $message")
+    }
+
+    fun coordinator(
+        phase: String,
+        fileId: Int? = null,
+        detail: String? = null
+    ) {
+        val idPart = fileId?.let { " file=$it" } ?: ""
+        val detailPart = detail?.let { " | $it" } ?: ""
+        Log.i(TAG, "[coordinator] $phase$idPart$detailPart")
+    }
+
+    fun transformer(
+        phase: String,
+        fileId: Int? = null,
+        detail: String? = null
+    ) {
+        val idPart = fileId?.let { " file=$it" } ?: ""
+        val detailPart = detail?.let { " | $it" } ?: ""
+        Log.i(TAG, "[transformer] $phase$idPart$detailPart")
+    }
+
+    fun progressPoll(
+        fileId: Int?,
+        progressState: String,
+        progressPercent: Int?,
+        partBytes: Long,
+        inputBytes: Long,
+        elapsedMs: Long,
+        preferSoftwareDecoder: Boolean
+    ) {
+        val idPart = fileId?.let { "file $it" } ?: "file ?"
+        val percentPart = progressPercent?.let { " progress=$it%" } ?: ""
+        Log.i(
+            TAG,
+            "[progress] $idPart | state=$progressState$percentPart | part=${sizeLabel(partBytes)} " +
+                "input=${sizeLabel(inputBytes)} | elapsed=${elapsedMs}ms | swDecoder=$preferSoftwareDecoder"
+        )
+    }
+
+    fun progressStallWarning(
+        fileId: Int?,
+        progressState: String,
+        partBytes: Long,
+        elapsedMs: Long,
+        pollCount: Int
+    ) {
+        val idPart = fileId?.let { "file $it" } ?: "file ?"
+        Log.w(
+            TAG,
+            "[stall] $idPart still at 0% | state=$progressState | part=${sizeLabel(partBytes)} | " +
+                "elapsed=${elapsedMs}ms | polls=$pollCount — export may be hung"
+        )
+    }
+
+    fun transformerExportError(
+        fileId: Int?,
+        errorCode: Int,
+        message: String?,
+        preferSoftwareDecoder: Boolean,
+        cause: Throwable? = null
+    ) {
+        val idPart = fileId?.let { "file $it" } ?: "file ?"
+        val text =
+            "[transformer] export failed $idPart | code=$errorCode | swDecoder=$preferSoftwareDecoder | msg=$message"
+        if (cause != null) {
+            Log.e(TAG, text, cause)
+        } else {
+            Log.e(TAG, text)
+        }
+    }
+
+    fun formatSize(bytes: Long): String = sizeLabel(bytes)
+
     private fun sizeLabel(bytes: Long): String {
         if (bytes < 1024) return "${bytes}B"
         val kb = bytes / 1024.0

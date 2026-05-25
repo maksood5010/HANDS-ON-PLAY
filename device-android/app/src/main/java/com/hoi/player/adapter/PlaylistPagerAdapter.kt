@@ -27,6 +27,7 @@ import com.hoi.player.models.resolveVideoPlaybackUri
 import androidx.media3.ui.PlayerView
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.hoi.player.heartbeat.PlaybackHeartbeatCollector
 import com.hoi.player.playback.PlaybackService
 import com.hoi.player.playback.isStuckBufferingAtStart
 import com.hoi.player.playback.needsMediaReload
@@ -35,6 +36,7 @@ import com.hoi.player.playback.needsSeekToStart
 class PlaylistPagerAdapter(
     private val appContext: Context,
     private val videoAssetStore: VideoAssetStore,
+    private val playbackHeartbeatCollector: PlaybackHeartbeatCollector,
     private val onVideoEnded: () -> Unit,
     private val onVideoError: () -> Unit,
     private val onVideoPlaybackStarted: (fileId: Int?) -> Unit = {},
@@ -180,6 +182,7 @@ class PlaylistPagerAdapter(
                     val built = future.get()
                     controller = built
                     attachControllerListener(built)
+                    playbackHeartbeatCollector.attach(built)
                     notifyDataSetChanged()
                 } catch (t: Throwable) {
                     Log.e(TAG, "Failed to build MediaController", t)
@@ -232,7 +235,8 @@ class PlaylistPagerAdapter(
                 ctrl.playWhenReady = false
                 return
             }
-            startVideoPlayback(ctrl, uri, item.fileId)
+            val title = item.originalName ?: item.fileUrl
+            startVideoPlayback(ctrl, uri, item.fileId, mediaTitle = title)
         } else {
             cancelBufferingWatchdog()
             ctrl.pause()
@@ -243,6 +247,7 @@ class PlaylistPagerAdapter(
         ctrl: MediaController,
         uri: String,
         fileId: Int?,
+        mediaTitle: String? = null,
         forceReload: Boolean = false
     ) {
         if (!shouldAllowPlayback(fileId)) {
@@ -261,7 +266,7 @@ class PlaylistPagerAdapter(
         val state = ctrl.playbackState
         if (forceReload || currentVideoUrl != uri || needsMediaReload(state)) {
             currentVideoUrl = uri
-            ctrl.setMediaItem(PlaybackService.mediaItem(uri))
+            ctrl.setMediaItem(PlaybackService.mediaItem(uri, mediaTitle))
             ctrl.prepare()
         } else if (needsSeekToStart(state)) {
             ctrl.seekTo(0)
@@ -372,6 +377,7 @@ class PlaylistPagerAdapter(
         }
         controllerListener = null
 
+        playbackHeartbeatCollector.detach()
         controller?.release()
         controller = null
 

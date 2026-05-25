@@ -19,6 +19,12 @@ hilt {
     enableAggregatingTask = false
 }
 
+fun escapeForBuildConfig(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val mqttUsername: String = (project.findProperty("MQTT_USERNAME") as String?) ?: ""
+val mqttPassword: String = (project.findProperty("MQTT_PASSWORD") as String?) ?: ""
+
 android {
     namespace = "com.hoi.player"
     compileSdk = 36
@@ -27,13 +33,17 @@ android {
         applicationId = "com.hoi.player"
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.2"
+        versionCode = 7
+        versionName = "1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "MQTT_USERNAME", escapeForBuildConfig(mqttUsername))
+        buildConfigField("String", "MQTT_PASSWORD", escapeForBuildConfig(mqttPassword))
     }
-    buildFeatures{
-        viewBinding =true
+    buildFeatures {
+        viewBinding = true
+        buildConfig = true
     }
 
     signingConfigs {
@@ -61,6 +71,17 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    // HiveMQ → Netty: multiple jars ship the same META-INF files
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties",
+                "META-INF/DEPENDENCIES",
+            )
+        }
     }
 }
 val lifecycle_version = "2.2.0"
@@ -112,5 +133,8 @@ dependencies {
 
 // ViewPager2 (uses RecyclerView)
     implementation("androidx.viewpager2:viewpager2:1.1.0")
+
+    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
+    implementation("androidx.lifecycle:lifecycle-process:${lifecycle_version}")
 
 }

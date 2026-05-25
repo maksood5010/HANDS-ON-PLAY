@@ -32,6 +32,27 @@ fun shouldStartPendingTranscode(
     return pendingFileId != currentlyPlayingFileId
 }
 
+/** Picks the next pending transcode; prepare-blocking file wins over older queue entries. */
+fun selectNextPendingTranscodeFileId(
+    pendingFileIds: Collection<Int>,
+    currentlyPlayingFileId: Int?,
+    prepareBlockingFileId: Int?,
+    isPendingAndNotReady: (Int) -> Boolean
+): Int? {
+    val eligible = pendingFileIds.filter { candidate ->
+        isPendingAndNotReady(candidate) &&
+            shouldStartPendingTranscode(
+                candidate,
+                currentlyPlayingFileId,
+                prepareBlockingFileId
+            )
+    }
+    if (prepareBlockingFileId != null) {
+        eligible.firstOrNull { it == prepareBlockingFileId }?.let { return it }
+    }
+    return eligible.firstOrNull()
+}
+
 fun recordHighDropWindow(
     consecutiveHighDropWindows: Int,
     dropRateFps: Double,

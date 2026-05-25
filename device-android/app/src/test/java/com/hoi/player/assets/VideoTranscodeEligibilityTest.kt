@@ -1,5 +1,6 @@
 package com.hoi.player.assets
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -105,6 +106,30 @@ class VideoTranscodeEligibilityTest {
         assertFalse(shouldStartPendingTranscode(pendingFileId = 53, currentlyPlayingFileId = 53))
         assertTrue(shouldStartPendingTranscode(pendingFileId = 53, currentlyPlayingFileId = 52))
         assertTrue(shouldStartPendingTranscode(pendingFileId = 53, currentlyPlayingFileId = null))
+    }
+
+    @Test
+    fun selectNextPendingTranscodeFileId_prefersPrepareBlockingFile() {
+        val pending = linkedSetOf(53, 52)
+        val next = selectNextPendingTranscodeFileId(
+            pendingFileIds = pending,
+            currentlyPlayingFileId = 52,
+            prepareBlockingFileId = 52,
+            isPendingAndNotReady = { true }
+        )
+        assertEquals(52, next)
+    }
+
+    @Test
+    fun selectNextPendingTranscodeFileId_fallsBackToQueueOrderWithoutPrepareBlock() {
+        val pending = linkedSetOf(53, 54)
+        val next = selectNextPendingTranscodeFileId(
+            pendingFileIds = pending,
+            currentlyPlayingFileId = 52,
+            prepareBlockingFileId = null,
+            isPendingAndNotReady = { true }
+        )
+        assertEquals(53, next)
     }
 
     @Test
